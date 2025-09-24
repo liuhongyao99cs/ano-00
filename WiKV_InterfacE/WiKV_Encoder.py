@@ -22,6 +22,8 @@ class WiKV_Encode:
         # args -> params, 
         # window_size -> layer dependency
         # session is the sample id
+        # seq_len is the total token num of context
+        # args is the parameter of dir and config
         # ============
 
         self.args = args    
@@ -33,10 +35,15 @@ class WiKV_Encode:
         self.bin_list = [64,48,32,32,24]
         self.layer_group = 9
         self.batch_size = 10000
-        self.max_deviation = 70
+        self.max_deviation = 50
          
         
     def Att_Loading(self):
+
+        # =======================
+        # Load in attention score generated from Attention.py
+        # Process the attention based on the later dependency
+        # =====================
 
         print(f"WiKV load attention weights and process layer dependency...")
         for i in range(self.config.num_hidden_layers):
@@ -63,6 +70,11 @@ class WiKV_Encode:
         
         
     def Semantic_Encode(self):
+
+        # =============================
+        # First, sort the indices of attention weights -> semantic sequence
+        # Second. layer-wise quantize
+        # =============================
 
         print(f"WiKV semantic encoding begining")
         flat_tensor = self.impor_score.flatten()
@@ -94,13 +106,17 @@ class WiKV_Encode:
     
     def calculate_dist_matrix(self, batch_id):
 
+        # ================================
         # caclutate the dist between kv vectors in seq batch_id
+        # ===============================
 
+        # calculate the num of KV vectors in the current batch
         lenx = 0
         if (batch_id + 1) * self.batch_size > self.kv_seq_len:
             lenx = self.kv_seq_len - (batch_id) * self.batch_size + 1
         else:
             lenx = self.batch_size
+
 
         initial_solution = torch.arange(0,lenx)
         dist_matrix = -torch.ones(len(initial_solution),len(initial_solution))
@@ -113,13 +129,12 @@ class WiKV_Encode:
         dist_matrix = x @ y.T
     
         # normalize the dist_matrix to [0,1]
-        print(dist_matrix.max(),dist_matrix.min())
         dist_matrix = 1 - (dist_matrix + 1) / 2
         self.dist_matrix = dist_matrix
 
         return dist_matrix
     
-    def constrained_two_opt(self, max_iter=3, batch_id=0, improve_threshold=1e-2):
+    def constrained_two_opt(self, max_iter=3, batch_id=0, improve_threshold=1.5*1e-2):
 
         # code inflation control of seq batch_id
 
@@ -153,7 +168,7 @@ class WiKV_Encode:
 
             delta = 0.0
             dist = self.dist_matrix
-            val_i, val_j = path[i], path[j]  # before swap
+            val_i, val_j = path[i], path[j]  # maintain the values before swap
 
             # --- delete old edge ---
             if i > 0:
@@ -193,7 +208,9 @@ class WiKV_Encode:
             improved = False
 
             # loop all swap pairs
-            for i in range(n):
+            
+            num = random.randint(0, 5)
+            for i in range(num,n,random.randint(3, 5)):
                 st = max(seq[i]-self.max_deviation,i+2)
                 ed = min(n,seq[i]+self.max_deviation)
                 for j in range(st,ed): 
