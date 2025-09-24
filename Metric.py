@@ -11,9 +11,8 @@ from WiKV_interface.WiKV_Encoder import WiKV_Encode
 from huggingface_hub import login
 
 # =============================================
-# Main controller of WiKV
+# Compute the metrics of decoding tokens with full att
 # =============================================
-
 p = argparse.ArgumentParser()
 
 p.add_argument("--model_id", type = str, default = "Qwen/Qwen3-4B")
@@ -26,7 +25,7 @@ p.add_argument("--save_metric_dir", type=str)
 p.add_argument("--save_kv_dir", type=str)
 p.add_argument("--save_att_dir", type=str)
 p.add_argument("--save_hid_dir", type=str)
-p.add_argument("--save_encode_dir", type=str)
+
 args = p.parse_args()
 
 model_name = args.model_id #"Qwen/Qwen3-4B"  # 
@@ -36,8 +35,6 @@ data_name = args.dataset_name
 # your hf account
 # login(token = "hf_xxx")
 login(token = "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")
-
-
 
 if __name__ == "__main__":
 
@@ -52,71 +49,48 @@ if __name__ == "__main__":
         output_attentions=False
     )
 
-    # load dataset from jsonl
+    # process dataset, assume we are testing 40K tokens
     dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
     data = load_testcases(dataset)
 
-    # Initialize the WiKV controller
-    controller = WiKV_Controller(args,shape=(1000, 128), dtype=torch.float32, threshold=0.25)
-    controller.boundary()
+if not os.path.exists(args.save_metric_dir):
+    os.makedirs(args.save_metric_dir, exist_ok=True)
 
-    if not os.path.exists(args.save_encode_dir):
-        os.makedirs(args.save_encode_dir, exist_ok=True)
+
+for session_id in range(args.end-args.start):
     
-
-    # loop all samples in the dataset
-    for session_id in range(args.end-args.start):
+    if data_name in ['longchat', 'tqa', 'nqa']:
+        input_text = data[session_id]['prompt'] 
+    else:
+        input_text = data[session_id]['context']
         
-        if data_name in ['longchat', 'tqa', 'nqa']:
-            input_text = data[session_id]['prompt'] 
-        else:
-            input_text = data[session_id]['context']
-            
-        inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
+    inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
 
-        input_ids = inputs_ids['input_ids']
-        attention_mask = inputs_ids['attention_mask']
+    input_ids = inputs_ids['input_ids']
+    attention_mask = inputs_ids['attention_mask']
 
-        seq_len = input_ids.shape[1]
+    seq_len = input_ids.shape[1]
 
-        encoder = WiKV_Encode(args=args, seq_len=seq_len, config=model.config, session=session_id, window_size=model.config.num_hidden_layers, device=next(model.parameters()).device)
-        encoder.Att_Loading()
-        kv_quant, kv_dequant = encoder.Semantic_Encode()
+    # WiKV_Encoder = WiKV_Encode(args=args, seq_len=seq_len, config=model.config, session=session_id,device=next(model.parameters()).device)
+    # WiKV_Encoder.Att_Loading()
+    # WiKV_Encoder.Semantic_Encode()
 
-        torch.save(encoder.sorted_sequence, f"{args.save_encode_dir}/kv_quant_{session_id}.pt")
-        torch.save(encoder.sorted_sequence, f"{args.save_encode_dir}/seq_semantic_{session_id}.pt")
-
-        generated = model.generate(
-            input_ids, 
-            attention_mask = attention_mask,
-            past_key_values=kv_dequant, 
-            max_new_tokens = 40, 
-            return_dict_in_generate=True, 
-            eos_token_id=tokenizer.eos_token_id, 
-            pad_token_id=tokenizer.eos_token_id, 
-            output_scores=True
-        )
-        
-        prediction = tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
-        print(prediction)
-
-
-        # we conduct inflation control on the semantic sequances in each batch
-        seq_lenxx = seq_len * model.config.num_hidden_layers * model.config.num_key_value_heads
-        for batch_id in range(seq_lenxx // encoder.batch_size):
-            encoder.calculate_dist_matrix(batch_id=batch_id)
-            solu = encoder.constrained_two_opt(batch_id=batch_id)
-            print(encoder.kv_seq_len)
-            torch.save(solu, f"{args.save_encode_dir}/seq_inflation_{session_id}_batch{batch_id}_.pt")
-        
-        
-        #print(solu)
-        #print(max(max(dist_matrix)),min(min(dist_matrix)))
-        # print(model.config)
-        # WiKV_Encoder.Semantic_Encode()
-
-
-    # A controller that overlaps KV cache streaming and decoding
+    # full KV cache contains full attention
+    raw_kv = torch.load(f"{args.save_kv_dir}/raw_kv_{session_id}.pt")
+    kv = tensor_to_tuple(raw_kv)
+    # generate logit scores through model.generate
+    generated = model.generate(input_ids, past_key_values=kv, max_new_tokens = 100, return_dict_in_generate=True, eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.eos_token_id, output_scores=True)
+    prediction = tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
+    print(prediction)
+    print("Dumping the metrics: K-top and entropy for decoded tokens...")
+    k_top = []
+    entro = []
+    for k in range(len(generated.scores)):
+        k_top.append(K_coverage(generated.scores[k]).item())
+        entro.append(entropy(generated.scores[k]).item())
+    torch.save(k_top, f"{args.save_metric_dir}/k_top_{session_id}.pt")
+    torch.save(entro, f"{args.save_metric_dir}/entro_{session_id}.pt")
+# A controller that overlaps KV cache streaming and decoding
 
 '''
 if __name__ == "__main__":

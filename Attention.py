@@ -12,7 +12,7 @@ from src.utils import *
 from huggingface_hub import login
 
 # =============================================
-# Obtain the KV cache from the contexts
+# Compute the attention weights given a Query "Repeat"
 # =============================================
 p = argparse.ArgumentParser()
 p.add_argument("--model_id", type = str, default = "Qwen/Qwen3-4B")
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
 for session_id in range(args.end-args.start):
     
-    if data_name == 'longchat':
+    if data_name in ['longchat', 'tqa', 'nqa']:
         input_text = data[session_id]['prompt'] + "Repeat the context."
     else:
         input_text = data[session_id]['context'] + "Repeat the context."
@@ -125,5 +125,5 @@ for session_id in range(args.end-args.start):
             torch.save(attn_weights,f"{args.save_att_dir}/attn_s{session_id}_l{layer_id}.pt")
     '''
 
-    atten_extract_(model, input_ids, args, session_id=0)
+    atten_extract_(model, input_ids, attention_mask,args, session_id=session_id)
 

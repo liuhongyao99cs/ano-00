@@ -41,7 +41,7 @@ data = load_testcases(dataset)
 
 for session_id in range(1):
     
-    if data_name == 'longchat':
+    if data_name in ['longchat', 'tqa', 'nqa']:
         input_text = data[session_id]['prompt']
     else:
         input_text = data[session_id]['context']

@@ -47,9 +47,9 @@ if __name__ == "__main__":
     dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
     data = load_testcases(dataset)
 
-for session_id in range(args.end-args.start):
+for session_id in range(args.start, args.end):
     
-    if data_name == 'longchat':
+    if data_name in ['longchat', 'tqa', 'nqa']:
         input_text = data[session_id]['prompt']
     else:
         input_text = data[session_id]['context']
@@ -57,7 +57,7 @@ for session_id in range(args.end-args.start):
     inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
     input_ids = inputs_ids['input_ids']
     attention_mask = inputs_ids['attention_mask']
-    print(input_ids.shape)
+    print(f"Saving the KV cache for doc {session_id}...")
 
     with torch.no_grad():
         generated = model.generate(
