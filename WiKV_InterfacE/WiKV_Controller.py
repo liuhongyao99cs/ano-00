@@ -1,12 +1,16 @@
 import threading
 import time
 import torch
+from sklearn.svm import OneClassSVM
+import os
+import numpy as np
 
 # WiKV semantic coding
 
 class WiKV_Controller:
-    def __init__(self, shape, dtype=torch.float32, threshold=0.25, device='cpu'):
+    def __init__(self, args, shape, dtype=torch.float32, threshold=0.25, device='cpu'):
 
+        self.args = args
         self.shape = shape
         self.dtype = dtype
         self.device = device
@@ -23,11 +27,14 @@ class WiKV_Controller:
         self.ready_event = threading.Event()  # 用于 probe 等待阈值
         self.full_event = threading.Event()
 
-        # 启动填充线程
+    def start_kv_fill(self):
         self.fill_thread = threading.Thread(target=self._fill_worker, daemon=True)
         self.fill_thread.start()
 
     def _fill_worker(self):
+        # =====================
+        # KV cache loading process
+        # =====================
 
         idx = 0
         step = 0.05
@@ -75,3 +82,35 @@ class WiKV_Controller:
             return self.filled_count / self.total_elements
 
 
+    def boundary(self):
+        # =======================
+        # A SVM learn a boundary with full attention
+        # =======================
+        datasets = ['nqa', 'tqa', 'longchat', 'gov_report', 'hotpotqa']
+        k_coverage = []
+        entro = []
+        for data in datasets:
+            for session in range(10):
+                file_path = os.path.join(self.args.save_metric_dir, f"{data}/k_top_{session}.pt")
+                k_top = torch.load(file_path)
+                k_coverage.extend(k_top)
+            
+            for session in range(10):
+                file_path = os.path.join(self.args.save_metric_dir, f"{data}/entro_{session}.pt")
+                en = torch.load(file_path)
+                entro.extend(k_top)
+        print(len(entro))
+        print(len(k_coverage))
+
+        data = np.column_stack((k_coverage, entro))
+        model = OneClassSVM(kernel='rbf', gamma='scale', nu=0.02)
+        model.fit(data)
+        print(model)
+        '''
+        pred = []
+        for i in range(len(k_coverage)):
+            predx = model.decision_function([[k_coverage[i],entro[i]]])
+            pred.append(torch.tensor(predx[0]).to(torch.float16).item())
+
+        print(pred)
+        '''
