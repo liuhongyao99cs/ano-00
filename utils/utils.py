@@ -8,9 +8,12 @@ from datasets import load_dataset
 import torch
 import json
 import os
+import copy
 import torch.nn.functional as F
 from contextlib import nullcontext
 
+# ====================================
+# load dataset from json file
 def load_testcases(test_file):
     with open(test_file, 'r', encoding='utf-8') as json_file:
         json_list = list(json_file)
@@ -21,6 +24,218 @@ def load_testcases(test_file):
         test_cases.append(test_case)
 
     return test_cases
+
+# ====================================
+# KV cache load in tensor, transfer to tuple for inference
+def tensor_to_tuple(kv):
+    """ Convert a tensor to a list of tuples
+    Input tensor's shape should be (num_layers, 2, num_heads, seq_len, heads_dim)
+    """
+    new_kv = []
+    for i in range(len(kv)):
+        new_kv.append((kv[i][0].unsqueeze(0), 
+                       kv[i][1].unsqueeze(0)))
+    return tuple(new_kv)
+
+
+# ==================================
+# quantization: layer wise quantization
+# ==================================
+
+def layer_quantization(kv, bin, N):
+    """ 
+    Layer-wise quantize the key value tensors into tuple of key and value tensors
+    bin is 2^bit 
+    max_tensors is the scalable mark 
+    N is the layer number that shares the same quantization bins
+    """
+    channels = kv.shape[-1] * kv.shape[-3]
+    max_tensors = None
+    for i in range(len(kv)):
+        key = kv[i][0]
+        value = kv[i][1]
+        key = key.permute((1, 0, 2)).reshape(kv.shape[-2], channels)
+        value = value.permute((1, 0, 2)).reshape(value.shape[-2], channels)
+
+        bins = bin[i//N]
+        
+        key, maxk = torch_quant(bins, key)
+        value, maxv = torch_quant(bins, value)
+        quant_key = key.reshape(kv[i][0].shape[-2], kv[i][0].shape[-3], kv[i][0].shape[-1]).permute((1, 0, 2))
+        quant_value = value.reshape(kv[i][1].shape[-2], kv[i][1].shape[-3], kv[i][1].shape[-1]).permute((1, 0, 2))
+        kv[i][0] = quant_key
+        kv[i][1] = quant_value
+        concated_max = torch.cat((maxk.unsqueeze(0), maxv.unsqueeze(0)), dim=0)
+
+        if max_tensors is None:
+            max_tensors = concated_max.unsqueeze(0)
+        else:
+            max_tensors = torch.cat((max_tensors, concated_max.unsqueeze(0)), dim=0)
+        
+    return kv.to(torch.int8), max_tensors
+
+def torch_quant(bins: int, qA: torch.Tensor):
+    """
+    Quantize a float tensor to fixed number of bins
+
+    Input:
+        bins: number of bins
+        qA: the input tensor
+
+    Returns:
+        xq: the quantized tensor, in float32
+        max1: the maximum value of the tensor
+    """
+    MAX = bins // 2 - 1
+    C = MAX
+    max1 = torch.amax(torch.abs(qA), dim=-1, keepdim=True)
+    xq = torch.round(qA * (C / max1)).to(torch.int8)
+    
+    x = (xq / C * max1).to(torch.float16)
+    
+    return xq, max1
+
+
+def torch_dequant(bins: int, xq: torch.Tensor, max1: torch.Tensor):
+    """
+    Dequantize a quantized tensor
+
+    Input:
+        bins: number of bins
+        xq: the quantized tensor
+        max1: the maximum value of the tensor
+
+    Returns:
+        x: the dequantized tensor
+    """
+    MAX = bins // 2 - 1
+    C = MAX
+    x = (xq / C * max1).to(torch.float16)
+    return x
+
+def layer_dequantize(kv, max_tensors, bin, N):
+    """
+    bin is 2^bit 
+    max_tensors is the scalable mark 
+    N is the layer number that shares the same quantization bins
+    """
+    channels = kv.shape[-1] * kv.shape[-3]
+    kv = kv.to(torch.float16)
+    for i in range(len(kv)):
+        key = kv[i][0]
+        value = kv[i][1]
+        key = key.permute((1, 0, 2)).reshape(kv.shape[-2], channels)
+        value = value.permute((1, 0, 2)).reshape(value.shape[-2], channels)
+
+        bins = bin[i//N]
+
+        dequant_k = torch_dequant(bins, key, max_tensors[i][0])
+        dequant_v = torch_dequant(bins, value, max_tensors[i][1])
+        dequant_key = dequant_k.reshape(kv[i][0].shape[-2], kv[i][0].shape[-3], kv[i][0].shape[-1]).permute((1, 0, 2))
+        dequant_value = dequant_v.reshape(kv[i][1].shape[-2], kv[i][1].shape[-3], kv[i][1].shape[-1]).permute((1, 0, 2))
+        kv[i][0] = dequant_key
+        kv[i][1] = dequant_value
+
+    return tensor_to_tuple(kv)
+
+# compute metrics to judge attention accumulation
+def K_coverage(scores,temp=1, K=200):
+    scores = scores.squeeze(0)
+    v = F.softmax(scores/temp,dim=-1)
+    v_k, ind_k = torch.topk(v, K)
+    ratio = torch.sum(v_k) / torch.sum(v)
+    
+    return ratio
+
+def entropy(scores,temp=1, K=200):
+    scores = scores.squeeze(0)
+    v = F.softmax(scores/temp,dim=-1)
+    v_k, ind_k = torch.topk(v, K)
+    v_k = torch.clamp(v_k, min=1e-10)
+    v_k = v_k / torch.sum(v_k)
+    entropy = -torch.sum(v_k * torch.log(v_k))
+    
+    return entropy
+
+
+# Inflation control tool fuction
+
+
+def constrained_two_opt(initial_solution, distance_matrix, max_deviation, max_iter = 10, improve_threshold=1e-6):
+    
+    """
+    position constrained 2-opt ALGORITHM
+
+    Args:
+        initial_solution: initial list e.g. [0, 2, 1, 3, 4]
+        distance_matrix: distance matrix (N*N)
+        max_deviation: MAX POS DEVIATION-> d
+        improve_threshold: IMPROVEMENT THRESHOLD
+
+    Returns:
+        best_solution: NEW PATH
+        best_distance: NEW DIST
+    """
+
+    # map initial nodes 
+    original_positions = {node: idx for idx, node in enumerate(initial_solution)}
+    n = len(initial_solution)
+
+    def calculate_total_distance(path):
+        
+        total = 0.0
+        for i in range(1,n):
+            total += distance_matrix[path[i-1], path[i]]
+        return total
+
+    def is_valid_swap(i, j, seq):
+        """
+        whether constraint is meeted
+        """
+        
+        original_pos = [seq[i], seq[j]]
+        new_pos = [j,i]
+
+        if (abs(new_pos[0]-original_pos[0])>max_deviation) or (abs(new_pos[1]-original_pos[1])>max_deviation):
+            return False
+            
+        return True
+
+    seq = copy.deepcopy(initial_solution)
+    n = len(seq)
+
+    best_solution = copy.deepcopy(seq)
+    best_distance = calculate_total_distance(best_solution)
+    
+    for iter in range(max_iter):
+        improved = False
+        best_swap = None
+        best_new_distance = best_distance
+
+        for i in range(n):
+            for j in range(i+1,n):
+                if not is_valid_swap(i,j,best_solution):
+                    continue
+
+                seq[i], seq[j] = seq[j], seq[i]
+                new_dist = calculate_total_distance(seq)
+
+                if new_dist < best_new_distance:
+                    best_new_distance = new_dist
+                    best_swap = (i, j)
+                    improved = True
+                
+                seq[i], seq[j] = seq[j], seq[i]
+        
+        if not improved:
+            break
+
+        i, j = best_swap
+        seq[i], seq[j] = seq[j], seq[i]
+        best_distance = best_new_distance
+        best_solution = copy.deepcopy(seq)
+
+    return best_solution, best_distance
 
 '''
 def att_extract_(
@@ -167,7 +382,7 @@ def to_blob(kv_tuples):
     """
     return torch.stack([torch.stack(inner_tuple, dim=0).to("cuda:0") for inner_tuple in kv_tuples], dim=0)
 
-def layer_atten_extract_(model, input_ids, layer_id, args, session_id=0):
+def layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, session_id=0):
     """
     calculate the attention weights of layer_id based on the hidden_states and attention params from pretrained model
     """
@@ -193,6 +408,34 @@ def layer_atten_extract_(model, input_ids, layer_id, args, session_id=0):
         
         position_ids = torch.arange(0, input_ids.shape[1], device=device).unsqueeze(0)
         
+        use_cache = None
+        past_key_values = None
+        cache_position = None
+        
+        if use_cache and past_key_values is None:
+            past_key_values = DynamicCache(config=model.config)
+
+        if cache_position is None:
+            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            cache_position = torch.arange(
+                past_seen_tokens, past_seen_tokens + model.model.embed_tokens(input_ids).shape[1], device=model.model.embed_tokens(input_ids).device
+            )
+
+        mask_kwargs = {
+                "config": model.config,
+                "input_embeds": model.model.embed_tokens(input_ids),
+                "attention_mask": attention_mask,
+                "cache_position": cache_position,
+                "past_key_values": past_key_values,
+                "position_ids": position_ids,
+            }
+        
+        causal_mask_mapping = {
+                "full_attention": create_causal_mask(**mask_kwargs),
+        }
+        
+        attention_mask=causal_mask_mapping['full_attention']
+
         # load model layer
         layer = model.model.layers[layer_id]
         rotary = model.model.rotary_emb
@@ -233,15 +476,20 @@ def layer_atten_extract_(model, input_ids, layer_id, args, session_id=0):
         key_states = repeat_kv(key_states, model.config.num_attention_heads // model.config.num_key_value_heads)
         
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * (model.config.head_dim ** -0.5)
+        if attention_mask is not None:
+            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            attn_weights = attn_weights + causal_mask
         
         # control the cuda memory
         del query_states, key_states, cos, sin, position_embeddings
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+        
         
 
-        #attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float16)
-        #attn_weights = F.dropout(attn_weights, p=0, training=False)
+        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float16)
+        attn_weights = F.dropout(attn_weights, p=0, training=False)
         
         attn_weights = attn_weights.squeeze(0)
         attn_weights = attn_weights.view(model.config.num_attention_heads // model.config.num_key_value_heads, model.config.num_key_value_heads, *attn_weights.shape[1:])
@@ -255,7 +503,7 @@ def layer_atten_extract_(model, input_ids, layer_id, args, session_id=0):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-def atten_extract_(model, input_ids, args, session_id=0):
+def atten_extract_(model, input_ids, attention_mask, args, session_id=0):
     """
     process all layers in the model
     """
@@ -264,6 +512,6 @@ def atten_extract_(model, input_ids, args, session_id=0):
     
     for layer_id in range(model.config.num_hidden_layers):
         print(f"Compute the attention weights of {layer_id}-layer...\n")
-        layer_atten_extract_(model, input_ids, layer_id, args, session_id)
+        layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, session_id)
         
        
