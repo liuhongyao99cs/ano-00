@@ -4,6 +4,8 @@ import time
 import threading
 import argparse
 import pickle
+import concurrent.futures
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from src.utils import *
 from WiKV_interface.WiKV_Controller import WiKV_Controller
@@ -36,6 +38,16 @@ data_name = args.dataset_name
 # your hf account
 # login(token = "hf_xxx")
 login(token = "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")
+
+def process_batch(encoder,args,session_id, batch_id):
+    # 注意：如果 encoder 不是线程安全 or 有内部状态冲突，应创建副本或重设计
+    encoder.calculate_dist_matrix(batch_id=batch_id)
+    solu = encoder.constrained_two_opt(batch_id=batch_id)
+    
+    save_path = f"{args.save_encode_dir}/seq_inflation_{session_id}_batch{batch_id}_.pt"
+    torch.save(solu, save_path)
+    
+    return batch_id, solu  # 可选：返回结果用于后续处理
 
 
 
@@ -83,7 +95,7 @@ if __name__ == "__main__":
         encoder.Att_Loading()
         kv_quant, kv_dequant = encoder.Semantic_Encode()
 
-        torch.save(encoder.sorted_sequence, f"{args.save_encode_dir}/kv_quant_{session_id}.pt")
+        torch.save(kv_quant, f"{args.save_encode_dir}/kv_quant_{session_id}.pt")
         torch.save(encoder.sorted_sequence, f"{args.save_encode_dir}/seq_semantic_{session_id}.pt")
 
         generated = model.generate(
@@ -103,13 +115,15 @@ if __name__ == "__main__":
 
         # we conduct inflation control on the semantic sequances in each batch
         seq_lenxx = seq_len * model.config.num_hidden_layers * model.config.num_key_value_heads
+        total_batches = seq_lenxx // encoder.batch_size
+        
         for batch_id in range(seq_lenxx // encoder.batch_size):
             encoder.calculate_dist_matrix(batch_id=batch_id)
             solu = encoder.constrained_two_opt(batch_id=batch_id)
             print(encoder.kv_seq_len)
             torch.save(solu, f"{args.save_encode_dir}/seq_inflation_{session_id}_batch{batch_id}_.pt")
         
-        
+
         #print(solu)
         #print(max(max(dist_matrix)),min(min(dist_matrix)))
         # print(model.config)
