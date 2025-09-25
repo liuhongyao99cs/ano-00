@@ -1,13 +1,16 @@
-import torch
-import torch.nn.functional as F
+import os
+import sys
 import time
+import torch
+import numpy as np
 import threading
 import argparse
 import pickle
 import concurrent.futures
-
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
-from src.utils import *
+
+from src import *
 from WiKV_interface.WiKV_Controller import WiKV_Controller
 from WiKV_interface.WiKV_Encoder import WiKV_Encode
 from huggingface_hub import login
@@ -69,8 +72,11 @@ if __name__ == "__main__":
     data = load_testcases(dataset)
 
     # Initialize the WiKV controller
-    controller = WiKV_Controller(args,shape=(1000, 128), dtype=torch.float32, threshold=0.25)
-    controller.boundary()
+    controller = WiKV_Controller(args=args,model=model, tokenizer = tokenizer, shape=(1000, 128), dtype=torch.float32, threshold=0.25)
+    
+    # learn the predictor
+    # controller.Metric()
+    controller.boundary_predictor()
 
     if not os.path.exists(args.save_encode_dir):
         os.makedirs(args.save_encode_dir, exist_ok=True)
@@ -112,17 +118,66 @@ if __name__ == "__main__":
         prediction = tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
         print(prediction)
 
-
         # we conduct inflation control on the semantic sequances in each batch
-        seq_lenxx = seq_len * model.config.num_hidden_layers * model.config.num_key_value_heads
-        total_batches = seq_lenxx // encoder.batch_size
+        # load semantic_seq and inflation_control_seq for modification
+        # delta coding on modified semantic_seq
         
-        for batch_id in range(seq_lenxx // encoder.batch_size):
-            encoder.calculate_dist_matrix(batch_id=batch_id)
-            solu = encoder.constrained_two_opt(batch_id=batch_id)
-            print(encoder.kv_seq_len)
-            torch.save(solu, f"{args.save_encode_dir}/seq_inflation_{session_id}_batch{batch_id}_.pt")
+        # Integrate with decoding paradigm 
+        st = time.perf_counter()
+
+        generated = model.generate(
+            input_ids, 
+            attention_mask = attention_mask,
+            past_key_values=kv_dequant, 
+            max_new_tokens = 1, 
+            return_dict_in_generate=True, 
+            eos_token_id=tokenizer.eos_token_id, 
+            pad_token_id=tokenizer.eos_token_id, 
+            output_scores=True
+        )
+        kv = generated['past_key_values']
+        kv = list(kv)
+        key_value = []
+        for i in range(len(kv)):
+            kv[i] = list(kv[i])
+            kv[i][0] = kv[i][0][:, :, :-1][0]
+            kv[i][1] = kv[i][1][:, :, :-1][0]
+            kv[i] = tuple(kv[i])
+        kv = tuple(kv)
+        kv = to_blob(kv)
+        m1 = K_coverage(generated.scores[0]).item()
+        m2 = entropy(generated.scores[0]).item()
+        data = np.column_stack((m1,m2))
+        decide = controller.model.decision_function(data)
+        print(kv.shape, len(generated.scores), m1, m2, decide, input_ids.shape,generated.sequences[0].shape)
+
+        ed = time.perf_counter()
+        elapsed_time = ed - st
+        print(f"Model .generate time: {elapsed_time:.3f} s")
+
+
+        '''
+        print(encoder.kv_seq_len)
+        encoder.Inflation_Seq(session_id)
+        semantic_seq, code_size = encoder.Inflation_Control(session_id)
+
+
+        kv_dequant = to_blob(kv_dequant)
+        kv_dequant = kv_dequant.squeeze(2)
+        print(kv_dequant.shape)
         
+        controller.kv_pool_initialize(kv_dequant)
+        controller.start_kv_fill(semantic_seq=semantic_seq, bw_trace=[850,670,960,950,1020,780,640,890.660,780,890,1000,850,670,960,950,1020,780,640,890.660,780,890,1000], kv_gpu=kv_dequant, code_size=code_size)
+        def probe_task():
+            while (True):
+                tensor = controller.probe(target_device='cuda:0')
+                if controller.full_event.is_set():
+                    break
+
+        probe_thread = threading.Thread(target=probe_task)
+        probe_thread.start()
+        probe_thread.join()
+        '''
 
         #print(solu)
         #print(max(max(dist_matrix)),min(min(dist_matrix)))
