@@ -188,7 +188,7 @@ class WiKV_Controller:
             tmp = kv[i,1]
             tmp=tmp.unsqueeze(0)
             kv_pace[i][1][:,:,:tmp.shape[2],:] = tmp
-            kv_pace1.update(kv_pace[i][0].clone(), kv_pace[i][0].clone(),i)
+            #kv_pace1.update(kv_pace[i][0].clone(), kv_pace[i][0].clone(),i)
             #kv_pace1[i][1][:,:,:tmp.shape[2],:] = tmp[:,:,:,:]
             #kv_pace[:,:,:,:self.kv_pool.shape[3],:] = self.kv_pool.to(target_device)
             #print(kv_pace[i][1].shape[2])
@@ -393,29 +393,29 @@ class WiKV_Controller:
                 while (True):
                     if not self.full_event.is_set():
                         start = time.perf_counter()
-                        kv_tuple, kv_tuple1 = self.probe(kv_tuple, target_device='cuda:0')
+                        kv_tuple, _ = self.probe(kv_tuple, target_device='cuda:0')
                         end = time.perf_counter()
                         elapsed_time = end - start
-                        print(f"Prepare {self.threshold*100}% KV CACHE for token {k}: {elapsed_time:.4f}s")
+                        #print(f"Prepare {self.threshold*100}% KV CACHE for token {k}: {elapsed_time:.4f}s")
                         #del kv_pace
                         start = time.perf_counter()
-                        #kv_tmp = copy.deepcopy(kv_tuple)
+                        kv_tmp = copy.deepcopy(kv_tuple)
                         with torch.no_grad():
                             generated = model.generate(
                                 input_idx, 
                                 attention_mask = attention_maskx,
-                                past_key_values=kv_tuple, 
+                                past_key_values=kv_tmp, 
                                 max_new_tokens = 1, 
                                 eos_token_id=tokenizer.eos_token_id, 
                                 pad_token_id=tokenizer.eos_token_id, 
                                 return_dict_in_generate=True, 
                                 output_scores=True
                             )
-                        kv_tuple = kv_tuple1
-                        del kv_tuple1
+                        #kv_tuple = kv_tuple1
+                        # del kv_tuple1
                         end = time.perf_counter()
                         elapsed_time = end - start
-                        print(f"Decode token {k}: {elapsed_time:.4f}s")
+                        #print(f"Decode token {k}: {elapsed_time:.4f}s")
 
                         # check the confidence 
                         start = time.perf_counter()
@@ -425,12 +425,12 @@ class WiKV_Controller:
                         decide = self.model.decision_function(data)[0]
                         end = time.perf_counter()
                         elapsed_time = end - start
-                        print(f"COnfidence check for token {k}: {elapsed_time:.4f}s")
+                        #print(f"COnfidence check for token {k}: {elapsed_time:.4f}s")
                         #print(f"Metric decide: {decide} score")
                         
                         
 
-                    if decide < -0.1 and (time.perf_counter() - token_st) < ddl:
+                    if decide < 0 and (time.perf_counter() - token_st) < ddl:
                         self.step = 0.2 / ( 1 + 10 * math.e ** (-decide / 20))
                         #print("not enough")
                         continue
@@ -449,7 +449,7 @@ class WiKV_Controller:
                                
                         del generated  
                         #ecode_token.append(generated.sequences[0][-1])
-                        self.step = 0.05
+                        self.step = 0.1
                         #print(f"Decoded token_num: {len(decode_token)}")
                         break
             
