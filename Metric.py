@@ -6,8 +6,8 @@ import argparse
 import pickle
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from src.utils import *
-from WiKV_interface.WiKV_Controller import WiKV_Controller
-from WiKV_interface.WiKV_Encoder import WiKV_Encode
+from WiKV_Interface.WiKV_Controller import WiKV_Controller
+from WiKV_Interface.WiKV_Encoder import WiKV_Encode
 from huggingface_hub import login
 
 # =============================================
@@ -57,7 +57,7 @@ if not os.path.exists(args.save_metric_dir):
     os.makedirs(args.save_metric_dir, exist_ok=True)
 
 
-for session_id in range(args.end-args.start):
+for session_id in range(args.start, args.end):
     
     if data_name in ['longchat', 'tqa', 'nqa']:
         input_text = data[session_id]['prompt'] 

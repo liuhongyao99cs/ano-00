@@ -53,7 +53,7 @@ if __name__ == "__main__":
     dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
     data = load_testcases(dataset)
 
-for session_id in range(args.end-args.start):
+for session_id in range(args.start,args.end):
     
     if data_name in ['longchat', 'tqa', 'nqa']:
         input_text = data[session_id]['prompt'] + "Repeat the context."
@@ -71,11 +71,12 @@ for session_id in range(args.end-args.start):
         os.makedirs(args.save_hid_dir, exist_ok=True)
     
     # if you have generated hidden_states data
-    if not os.path.exists(os.path.join(args.save_hid_dir, f"hidden_s{session_id}_l{model.config.num_hidden_layers-1}.pt")):
-        hidden_extract_(
+    #if not os.path.exists(os.path.join(args.save_hid_dir, f"hidden_s{session_id}_l{model.config.num_hidden_layers-1}.pt")):
+    hidden_extract_(
             model=model,        # predefined mdoel
             model_name=model_N, # "Qwen3-8b"
             data_name=data_name,  # "longchat"
+            attention_mask=attention_mask,
             session_id=session_id, # 5-th sample
             save_dir=args.save_hid_dir,
             input_ids = input_ids,
