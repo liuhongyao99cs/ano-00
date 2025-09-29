@@ -12,6 +12,7 @@ from typing import Callable, Optional, Union
 from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.models.qwen3.modeling_qwen3 import repeat_kv, apply_rotary_pos_emb
+#from transformers.models.mistral.modeling_mistral import repeat_kv, apply_rotary_pos_emb
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
 # ====================================
@@ -42,6 +43,32 @@ def tensor_to_tuple(kv):
         new_kv.append((kv[i][0].unsqueeze(0), 
                        kv[i][1].unsqueeze(0)))
     return tuple(new_kv)
+
+def tensor_to_past_key_values(kv_tensor):
+    """
+    Convert [num_layers, 2, num_heads, seq_len, head_dim] 
+    to transformers.DynamicCache (compatible with Qwen3).
+    
+    Args:
+        kv_tensor: torch.Tensor of shape [L, 2, H, S, D]
+    
+    Returns:
+        cache: DynamicCache
+    """
+    num_layers = kv_tensor.shape[0]
+    
+    keys = kv_tensor[:, 0, :, :, :]  # [36, 8, seq, 128]
+    vals = kv_tensor[:, 1, :, :, :]  # [36, 8, seq, 128]
+    
+    keys = keys.unsqueeze(1)
+    vals = vals.unsqueeze(1)
+    
+    cache = DynamicCache()
+    
+    for i in range(num_layers):
+        cache.update(keys[i], vals[i], layer_idx=i)
+    
+    return cache
 
 def to_blob(kv_tuples):
     """ Transform a list of tuples of key and value tensors to a single tensor
@@ -536,12 +563,116 @@ def hidden_extract_(
     model_name, 
     data_name, 
     session_id, 
+    attention_mask,
     save_dir: str,
     input_ids: torch.LongTensor,
     use_cache: Optional[bool] = False,
     past_key_values: Optional[Cache] = None,
 ) :
+
+    device = next(model.parameters()).device
+    hidden_states = model.model.embed_tokens(input_ids)
+    position_ids = torch.arange(0, input_ids.shape[1], device=device).unsqueeze(0)
+        
+    use_cache = None
+    past_key_values = None
+    cache_position = None
     
+    if use_cache and past_key_values is None:
+        past_key_values = DynamicCache(config=model.config)
+
+    if cache_position is None:
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        cache_position = torch.arange(
+            past_seen_tokens, past_seen_tokens + model.model.embed_tokens(input_ids).shape[1], device=model.model.embed_tokens(input_ids).device
+        )
+
+    if position_ids is None:
+        position_ids = cache_position.unsqueeze(0)
+
+    if model.config.model_type != 'mistral':
+        mask_kwargs = {
+                "config": model.config,
+                "input_embeds": model.model.embed_tokens(input_ids),
+                "attention_mask": attention_mask,
+                "cache_position": cache_position,
+                "past_key_values": past_key_values,
+                "position_ids": position_ids,
+            }
+        causal_mask = {
+                "full_attention": create_causal_mask(**mask_kwargs),
+        }
+    else:
+        mask_function = create_causal_mask if model.config.sliding_window is None else create_sliding_window_causal_mask
+        causal_mask = mask_function(
+            config=model.config,
+            input_embeds=model.model.embed_tokens(input_ids),
+            attention_mask=attention_mask,
+            cache_position=cache_position,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
+        )
+
+    layer = model.model.layers[0]
+    rotary = model.model.rotary_emb
+    layer_norm = layer.input_layernorm
+    q_proj = layer.self_attn.q_proj
+    k_proj = layer.self_attn.k_proj
+    if model.config.model_type != 'mistral':
+        q_norm = layer.self_attn.q_norm
+        k_norm = layer.self_attn.k_norm
+    
+
+    hidden_states = layer_norm(hidden_states)
+    file_path = os.path.join(save_dir, f"hidden_s{session_id}_l{0}.pt")
+    torch.save(hidden_states.cpu(), file_path)  
+    
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, model.config.head_dim)
+    
+
+    query_states = q_proj(hidden_states).view(hidden_shape)
+    if model.config.model_type != 'mistral':
+        query_states = q_norm(query_states).transpose(1, 2)
+    else:
+        query_states = query_states.transpose(1, 2)
+    
+    key_states = k_proj(hidden_states).view(hidden_shape)
+    if model.config.model_type != 'mistral':
+        key_states = k_norm(key_states).transpose(1, 2)
+    else:
+        key_states = key_states.transpose(1, 2)
+    
+    position_embeddings = rotary(key_states, position_ids) 
+    del key_states, query_states
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        
+    with torch.no_grad():
+        for i, layer in enumerate(model.model.layers):
+            if model.config.model_type != 'mistral':
+                hidden_states = layer(
+                    hidden_states,
+                    attention_mask=causal_mask[layer.attention_type],
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    use_cache=use_cache,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                    )
+            else:
+                hidden_states = layer(
+                    hidden_states,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    use_cache=use_cache,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                    )
+            file_path = os.path.join(save_dir, f"hidden_s{session_id}_l{i+1}.pt")
+            torch.save(hidden_states.cpu(), file_path)    
+    '''
     with torch.no_grad():
         outputs = model(
             input_ids=input_ids,
@@ -550,10 +681,10 @@ def hidden_extract_(
             use_cache=use_cache,
             past_key_values=past_key_values
         )
-        
-    for i, hidden_state in enumerate(outputs.hidden_states):
-        file_path = os.path.join(save_dir, f"hidden_s{session_id}_l{i}.pt")
-        torch.save(hidden_state.cpu(), file_path)
+    '''    
+    #for i, hidden_state in enumerate(outputs.hidden_states):
+    #    file_path = os.path.join(save_dir, f"hidden_s{session_id}_l{i}.pt")
+    #    torch.save(hidden_state.cpu(), file_path)
         
 
 def to_blob(kv_tuples):
@@ -616,13 +747,16 @@ def layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, sessi
         attention_mask=causal_mask_mapping['full_attention']
 
         # load model layer
+        #print(model.config)
+        #print(model.config.model_type)
         layer = model.model.layers[layer_id]
         rotary = model.model.rotary_emb
         layer_norm = layer.input_layernorm
         q_proj = layer.self_attn.q_proj
         k_proj = layer.self_attn.k_proj
-        q_norm = layer.self_attn.q_norm
-        k_norm = layer.self_attn.k_norm
+        if model.config.model_type != 'mistral':
+            q_norm = layer.self_attn.q_norm
+            k_norm = layer.self_attn.k_norm
         
 
         hidden_states = layer_norm(hidden_states)
@@ -632,10 +766,16 @@ def layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, sessi
         
 
         query_states = q_proj(hidden_states).view(hidden_shape)
-        query_states = q_norm(query_states).transpose(1, 2)
+        if model.config.model_type != 'mistral':
+            query_states = q_norm(query_states).transpose(1, 2)
+        else:
+            query_states = query_states.transpose(1, 2)
         
         key_states = k_proj(hidden_states).view(hidden_shape)
-        key_states = k_norm(key_states).transpose(1, 2)
+        if model.config.model_type != 'mistral':
+            key_states = k_norm(key_states).transpose(1, 2)
+        else:
+            key_states = key_states.transpose(1, 2)
         
 
         del hidden_states
@@ -694,3 +834,134 @@ def atten_extract_(model, input_ids, attention_mask, args, session_id=0):
         layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, session_id)
         
        
+'''
+def probe_task(kv_pace, kv_tuple, input_idx, attention_maskx, controller, model, tokenizer, decode_token):
+    idx = 0
+    for k in range(100):
+        
+        if (k == 0 ):
+                # warm-up dummy cycle
+            for t in range(1):
+                with torch.no_grad():
+                    generated = model.generate(
+                        input_idx, 
+                        attention_mask = attention_maskx,
+                        past_key_values=kv_tuple, 
+                        max_new_tokens = 1, 
+                        return_dict_in_generate=True, 
+                        output_scores=True
+                    )
+            
+            kv_tuplex = generated['past_key_values']
+            kv_tuple = DynamicCache()
+
+            kv_list = list(kv_tuplex)
+            for j in range(len(kv_list)):
+                kv_list[j] = list(kv_list[j])
+                kv_list[j][0] =  kv_list[j][0][:,:,:-1,:]
+                kv_list[j][1] =  kv_list[j][1][:,:,:-1,:]
+                #print(kv_list[j][0].shape)
+                kv_tuple.update(kv_list[j][0],kv_list[j][1],j)
+
+            del kv_list, kv_tuplex
+            controller.warm_up.set()
+        
+            st = time.perf_counter()
+
+
+        # if KV cache is not fully streamed
+        if not controller.full_event.is_set():
+
+            while (True):
+
+                start = time.perf_counter()
+                kv_tuple = controller.probe_tuple(kv_tuple, semantic_seq, target_device='cuda:0')
+                end = time.perf_counter()
+                elapsed_time = end - start
+                print(f"Wait streaming and copy data time: {elapsed_time:.4f}s")
+
+                start = time.perf_counter()
+                with torch.no_grad():
+                    generated = model.generate(
+                        input_idx, 
+                        attention_mask = attention_maskx,
+                        past_key_values=kv_tuple, 
+                        max_new_tokens = 1, 
+                        return_dict_in_generate=True, 
+                        output_scores=True
+                    )
+
+                end = time.perf_counter()
+                elapsed_time = end - start
+                print(f"Decode token time: {elapsed_time:.4f}s")
+                #end = time.perf_counter()
+                #elapsed_time = end - st
+                #print(f"MOdel time: {elapsed_time:.2f}s")
+                
+                #next_token_id = torch.argmax(outputs.logits[:, -1, :], dim=-1).unsqueeze(0)
+                #input_ids = torch.cat([input_ids, next_token_id], dim=1)
+                #kv_pace = outputs.past_key_values
+
+                # check the confidence 
+                start = time.perf_counter()
+                m1 = K_coverage(generated.scores[0]).item()
+                m2 = entropy(generated.scores[0]).item()
+                data = np.column_stack((m1, m2))
+                decide = controller.model.decision_function(data)[0]
+                end = time.perf_counter()
+                elapsed_time = end - start
+                print(f"Metric decide time: {elapsed_time:.4f}s with score {decide}")
+                
+                
+            
+                #print(f"Pred score: {decide}")
+
+                if (decide < -0.1):
+                    controller.step = 0.2 / ( 1 + 10 * math.e ** (-decide / 20))
+                    continue
+                else:
+                    
+                    end = time.perf_counter()
+                    if k == 0 : 
+                        ttft = end - st
+                    
+                    token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
+                    print(token, end="", flush=True)
+                    input_idx = (generated.sequences[0]).unsqueeze(0)
+                    new_token = torch.tensor([[1]], device=attention_maskx.device)
+                    attention_maskx = torch.cat([attention_maskx, new_token], dim=1)
+                    kv_tuple = generated['past_key_values']
+                    decode_token.append(generated.sequences[0][-1])
+                    controller.step = 0.1
+                    
+                    #print(f"Decoded token_num: {len(decode_token)}")
+                    break
+        
+        # all KV cache is streamed
+        else:
+            with torch.no_grad():
+                
+                generated = model.generate(
+                    input_idx, 
+                    attention_mask = attention_maskx,
+                    past_key_values=kv_tuple, 
+                    max_new_tokens = 1, 
+                    return_dict_in_generate=True, 
+                    eos_token_id=tokenizer.eos_token_id, 
+                    pad_token_id=tokenizer.eos_token_id, 
+                    output_scores=True
+                )
+            #end = time.time()
+            #elapsed_time = end - start
+            #print(f"Model time: {elapsed_time:.2f}s")
+            input_idx = (generated.sequences[0]).unsqueeze(0)
+            new_token = torch.tensor([[1]], device=attention_maskx.device)
+            attention_maskx = torch.cat([attention_maskx, new_token], dim=1)
+            decode_token.append(generated.sequences[0][-1])
+            kv_tuple = generated['past_key_values']
+            # print("KV length from model():", kv_tuple.get_seq_length())
+            token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
+
+            print(token, end="", flush=True)
+            #print(f"Decoded token_num: {len(decode_token)}")
+'''
