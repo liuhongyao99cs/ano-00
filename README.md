@@ -1,2 +1,2 @@
 # WiKV
-![Sample Video]（/WiKV-DEMO.mp4）
+![Sample Video](WiKV-DEMO.mp4）
