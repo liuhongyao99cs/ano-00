@@ -56,16 +56,19 @@ if __name__ == "__main__":
 for session_id in range(args.start,args.end):
     
     if data_name in ['longchat', 'tqa', 'nqa']:
-        input_text = data[session_id]['prompt'] + "Repeat the context."
+        input_text = data[session_id]['prompt'] + "Repeat the above context."
+    elif data_name in ['hotpotqa']:
+            input_text = data[session_id]['context'] + "Based on given passages, answer the question: " + data[session_id]['input'] + "Repeat the above context."
     else:
-        input_text = data[session_id]['context'] + "Repeat the context."
+        input_text = data[session_id]['context'] + "Summarize the given context in 250 tokens." + " Repeat the above context."
         
     inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
     input_ids = inputs_ids['input_ids']
     attention_mask = inputs_ids['attention_mask']
     
     # check the context length
-    print(input_ids.shape)
+    #print(input_ids.shape)
+    #print(model.config)
     
     if not os.path.exists(args.save_hid_dir):
         os.makedirs(args.save_hid_dir, exist_ok=True)

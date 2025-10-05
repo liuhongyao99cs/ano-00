@@ -50,9 +50,11 @@ if __name__ == "__main__":
 for session_id in range(args.start, args.end):
     
     if data_name in ['longchat', 'tqa', 'nqa']:
-        input_text = data[session_id]['prompt']
+        input_text = data[session_id]['prompt'] 
+    elif data_name in ['hotpotqa']:
+            input_text = data[session_id]['context'] + "Based on given passages, answer the question: " + data[session_id]['input']
     else:
-        input_text = data[session_id]['context']
+        input_text = data[session_id]['context'] + "Summarize the given context in 250 tokens."
         
     inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
     input_ids = inputs_ids['input_ids']

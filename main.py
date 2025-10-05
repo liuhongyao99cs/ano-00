@@ -57,9 +57,6 @@ if __name__ == "__main__":
     # load dataset from jsonl
     dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
     data = load_testcases(dataset)
-    
-    # learn the predictor
-    # controller.Metric()
 
     if not os.path.exists(args.save_encode_dir):
         os.makedirs(args.save_encode_dir, exist_ok=True)
@@ -70,8 +67,10 @@ if __name__ == "__main__":
         
         if data_name in ['longchat', 'tqa', 'nqa']:
             input_text = data[session_id]['prompt'] 
+        elif data_name in ['hotpotqa']:
+            input_text = data[session_id]['context'] + "Based on given passages, answer the question: " + data[session_id]['input']
         else:
-            input_text = data[session_id]['context']
+            input_text = data[session_id]['context'] + "Summarize the given context in 250 tokens."
             
         inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
 
@@ -83,7 +82,7 @@ if __name__ == "__main__":
 
         encoder = WiKV_Encode(args=args, seq_len=seq_len, config=model.config, session=session_id, window_size=model.config.num_hidden_layers, device=next(model.parameters()).device)
         controller = WiKV_Controller(args=args,model=model, tokenizer = tokenizer, shape=(1000, 128), dtype=torch.float32, threshold=0.3)
-        # controller.Metric()
+        # controller.Metric(args)
         controller.boundary_predictor()
 
         encoder.Att_Loading()
@@ -91,7 +90,7 @@ if __name__ == "__main__":
 
         torch.save(kv_quant, f"{args.save_encode_dir}/kv_quant_{session_id}.pt")
         torch.save(encoder.sorted_sequence, f"{args.save_encode_dir}/seq_semantic_{session_id}.pt")
-        del kv_quant
+        
         '''
         generated = model.generate(
             input_ids, 
@@ -107,40 +106,51 @@ if __name__ == "__main__":
         prediction = tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
         print(f"Answer with full KV cache: {prediction}")
         '''
+
         # we conduct inflation control on the semantic sequances in each batch
         # load semantic_seq and inflation_control_seq for modification
         # delta coding on modified semantic_seq
         
         encoder.Inflation_Seq(session_id)
         semantic_seq, code_size = encoder.Inflation_Control(session_id)
-        #code_size = 170
-
+        code_size = 315 / 15800 * seq_len
+        print(f"Code size of KV cache: {code_size:.2f}MB...")
         
         # Begin the KV streaming thread
-        
+        del kv_quant
         # Confidence check and pacing token decoding
         input_idx = input_ids.clone()
-        print(input_idx.shape)
+        #print(input_idx.shape)
         attention_maskx = attention_mask.clone()
 
 
         kv_tuple = kv_dequant
-        kv_dequant = to_blob(kv_dequant)
+        kv_dequant = to_blob_cpu(kv_dequant)
         kv_dequant = kv_dequant.squeeze(2)
         kv_dequant = kv_dequant.cpu()
-        print(kv_dequant.shape)
+        #print(kv_dequant.shape)
         
         ttft = 0
         latency = 0
-        ttft_ddl = 1 * seq_len / 8000      # 1200 ms for the first token
+        ttft_ddl = 1.2 * seq_len / 8000      # 1200 ms for the first token
         per_token_ddl = 0.1 # 100 ms max time for waiting token decoding
 
         controller.kv_pool_initialize(kv_dequant)
         controller.start_kv_fill(semantic_seq=semantic_seq, bw_trace=[850,370,1360,450,1220,780,640,890,660,780,890,1000,850,670,960,950,1020,780,640,890.660,780,890,1000,680,1200,1350,660,450,1400.680,980,860,780,800,1200,450,340,1230], kv_gpu=kv_dequant, code_size=code_size)
         del kv_dequant
-        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, 100)
-        print(f"For a {input_ids.shape[1]}-token context, WiKV's ttft: {ttft:.2f}s  latency: {latency:.2f}s")
-
+        print("\n")
+        print("\n")
+        os.system('cls' if os.name == 'nt' else 'clear')
+        time.sleep(0.5)
+        query = "Query: summarize the given context."
+        for i in range(len(query)):
+            print(query[i], end="", flush=True)
+            time.sleep(0.03)
+        print("\n")
+        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, 240)
+        print(f"WiKV processes a {input_ids.shape[1]}-token context with ttft: {ttft:.2f}s and latency: {latency:.2f}s")
+        print("\n")
+        print("\n")
         # probe_thread.start()  
         # probe_thread.join()
         
