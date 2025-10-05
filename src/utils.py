@@ -75,6 +75,11 @@ def to_blob(kv_tuples):
     """
     return torch.stack([torch.stack(inner_tuple, dim=0).to("cuda:0") for inner_tuple in kv_tuples], dim=0)
 
+def to_blob_cpu(kv_tuples):
+    """ Transform a list of tuples of key and value tensors to a single tensor
+    """
+    return torch.stack([torch.stack(inner_tuple, dim=0).to("cpu") for inner_tuple in kv_tuples], dim=0)
+
 # ==================================
 # Delta encode / decode
 # ==================================
@@ -418,7 +423,7 @@ def constrained_two_opt(initial_solution, distance_matrix, max_deviation, max_it
         best_swap = None
         best_new_distance = best_distance
 
-        for i in range(n):
+        for i in range(0,n,2):
             for j in range(i+1,n):
                 if not is_valid_swap(i,j,best_solution):
                     continue
