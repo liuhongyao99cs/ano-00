@@ -34,7 +34,7 @@ class WiKV_Encode:
         self.impor_score = []
         self.session = session
         self.window_size = window_size
-        self.bin_list = [18,14,12,10,8]
+        self.bin_list = [24,20,14,10,12]
         self.layer_group = 9
         self.batch_size = 10000
         self.max_deviation = 20
@@ -152,7 +152,7 @@ class WiKV_Encode:
 
         return dist_matrix
     
-    def constrained_two_opt(self, max_iter=3, batch_id=0, improve_threshold=0.2):
+    def constrained_two_opt(self, max_iter=3, batch_id=0, improve_threshold=0.01):
 
         # ========================
         # code inflation control to obtain a modified seq with higher efficiency
@@ -233,11 +233,11 @@ class WiKV_Encode:
 
             # loop all swap pairs
             num = random.randint(0, 5)
-            for i in range(num,n,random.randint(1, 5)):
+            for i in range(num,n,random.randint(3, 7)):
                 # select valid j under constraint
                 st = max(seq[i]-self.max_deviation,i+2)
                 ed = min(n,seq[i]+self.max_deviation)
-                for j in range(st,ed): 
+                for j in range(st,ed,2): 
                     #if not is_valid_swap(i, j, seq):
                         #continue
 
@@ -314,20 +314,21 @@ class WiKV_Encode:
         flat_deltas = flat_deltas.tolist()
         huff = HuffmanCodec()
         codebook_path = f"{self.args.save_encode_dir}Huffman/codebook_key_{session_id}.pt"
-        if not os.path.exists(codebook_path):
-            os.makedirs(f"{self.args.save_encode_dir}Huffman", exist_ok=True)
-            huff.build_codebook(flat_deltas)
-            huff.save_codebook(codebook_path)
-        else:
-            huff.load_codebook(codebook_path)
+        #if not os.path.exists(codebook_path):
+        #    os.makedirs(f"{self.args.save_encode_dir}Huffman", exist_ok=True)
+        huff.build_codebook(flat_deltas)
+        huff.save_codebook(codebook_path)
+        #else:
+        #    huff.load_codebook(codebook_path)
 
         def encode_chunk(chunk):
             return huff.encode(chunk)
 
         # Huffman encoding
         # Use paraller to make it more efficient
-        
-        CHUNK_SIZE = 400_000
+        '''
+        print(f"HUffman encode chunk size: {len(flat_deltas)}")
+        CHUNK_SIZE = 8_000_000
         chunks = [flat_deltas[i:i + CHUNK_SIZE] for i in range(0, len(flat_deltas), CHUNK_SIZE)]
 
         with ThreadPoolExecutor(max_workers=16) as executor: 
@@ -342,15 +343,15 @@ class WiKV_Encode:
         flat_deltas, first_sample = delta_encode(v_seq)
         flat_deltas = flat_deltas.tolist()
         huff = HuffmanCodec()
-        if not os.path.exists(f"{self.args.save_encode_dir}Huffman/codebook_val_{session_id}.pt"):
-            os.makedirs(f"{self.args.save_encode_dir}Huffman", exist_ok=True)
-            huff.build_codebook(flat_deltas)
-            huff.save_codebook(f"{self.args.save_encode_dir}Huffman/codebook_val_{session_id}.pt")
-        else:
-            huff.load_codebook(f"{self.args.save_encode_dir}Huffman/codebook_val_{session_id}.pt")
+        #if not os.path.exists(f"{self.args.save_encode_dir}Huffman/codebook_val_{session_id}.pt"):
+        #    os.makedirs(f"{self.args.save_encode_dir}Huffman", exist_ok=True)
+        huff.build_codebook(flat_deltas)
+        huff.save_codebook(f"{self.args.save_encode_dir}Huffman/codebook_val_{session_id}.pt")
+        #else:
+        #    huff.load_codebook(f"{self.args.save_encode_dir}Huffman/codebook_val_{session_id}.pt")
 
 
-        CHUNK_SIZE = 400_000
+        CHUNK_SIZE = 8_000_000
         chunks = [flat_deltas[i:i + CHUNK_SIZE] for i in range(0, len(flat_deltas), CHUNK_SIZE)]
 
         with ThreadPoolExecutor(max_workers=16) as executor: 
@@ -362,5 +363,5 @@ class WiKV_Encode:
         code_final += code_byte
         code_size += len(code_byte)/1024/1024
         # torch.save(code_final, f"{self.args.save_encode_dir}Huffman/code_final_{session_id}.pt")
-        
+        '''
         return modified_sequence, code_size

@@ -1,14 +1,15 @@
-import threading
-import time
-import torch
+import os
 import sys
+import time
 import math
 import copy
-from sklearn.svm import OneClassSVM
-import os
+import torch
+import threading
 import numpy as np
-from src import *
+from pathlib import Path
+from sklearn.svm import OneClassSVM
 
+from src import *
 from transformers.cache_utils import Cache, DynamicCache
 
 # WiKV semantic coding
@@ -250,7 +251,7 @@ class WiKV_Controller:
             return self.filled_count / self.total_elements
     
 
-    def Metric(self):
+    def Metric(self, args):
         
         # =====================
         # Gather metrics of tokens with full attention
@@ -259,34 +260,38 @@ class WiKV_Controller:
         datasets = ['nqa', 'tqa', 'longchat', 'gov_report', 'hotpotqa']
         for datax in datasets:
             #datax = 'longchat'
-            if not os.path.exists(f'/home/hoongyao/data/test_data/{datax}.jsonl'):
+            data_parent_root = Path(args.path_to_context).parent
+            if not os.path.exists(f"{data_parent_root}/{datax}.jsonl"):
                     print("Load test data first...")
                     sys.exit(1)
-            
-            data = load_testcases(f'/home/hoongyao/data/test_data/{datax}.jsonl')
+
+            data = load_testcases(f'{data_parent_root}/{datax}.jsonl')
             for session_id in range(self.num_sample):
                 
                 if datax in ['longchat', 'tqa', 'nqa']:
                     input_text = data[session_id]['prompt'] 
+                elif datax in ['hotpotqa']:
+                    input_text = data[session_id]['context'] + "Based on given passages, answer the question: " + data[session_id]['input']
                 else:
-                    input_text = data[session_id]['context']
+                    input_text = data[session_id]['context'] + "Summarize the given context in 250 tokens."
+            
                     
                 inputs_ids = self.tokenizer(input_text, return_tensors="pt").to(self.model.device)
                 input_ids = inputs_ids['input_ids']
                 attention_mask = inputs_ids['attention_mask']
                 seq_len = input_ids.shape[1]
 
-                
-                if not os.path.exists(f"/home/hoongyao/data/KV_cache/{self.args.model}/{datax}/raw_kv_{session_id}.pt"):
+                kv_parent_root = Path(args.save_kv_dir).parent
+                if not os.path.exists(f"{kv_parent_root}/{self.args.model}/{datax}/raw_kv_{session_id}.pt"):
                     print("Compute the KV cache first...")
                     sys.exit(1)
 
-                raw_kv = torch.load(f"/home/hoongyao/data/KV_cache/{self.args.model}/{datax}/raw_kv_{session_id}.pt")
+                raw_kv = torch.load(f"{kv_parent_root}/{self.args.model}/{datax}/raw_kv_{session_id}.pt")
                 
                 kv = tensor_to_tuple(raw_kv)
                 del raw_kv
                 # generate logit scores through model.generate
-                generated = self.model.generate(input_ids, past_key_values = kv, max_new_tokens = 40, return_dict_in_generate=True, eos_token_id=self.tokenizer.eos_token_id, pad_token_id=self.tokenizer.eos_token_id, attention_mask=attention_mask, output_scores=True, output_attentions=False)
+                generated = self.model.generate(input_ids, past_key_values = kv, max_new_tokens = 100, return_dict_in_generate=True, eos_token_id=self.tokenizer.eos_token_id, pad_token_id=self.tokenizer.eos_token_id, attention_mask=attention_mask, output_scores=True, output_attentions=False)
                 prediction = self.tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
                 #print(prediction)
                 del kv
@@ -303,8 +308,6 @@ class WiKV_Controller:
                 torch.save(k_top, f"{self.args.save_metric_dir}/{datax}/k_top_{session_id}.pt")
                 torch.save(entro, f"{self.args.save_metric_dir}/{datax}/entro_{session_id}.pt")
                 del generated
-                
-
 
     def boundary_predictor(self):
 
@@ -342,7 +345,7 @@ class WiKV_Controller:
 
         data = np.column_stack((k_coverage, entro))
         #print(data[0], data[10])
-        model = OneClassSVM(kernel='rbf', gamma='scale', nu=0.15)
+        model = OneClassSVM(kernel='rbf', gamma='scale', nu=0.06)
         model.fit(data)
         print(f"Attention predictor: {model}")
         self.model = model
@@ -358,7 +361,7 @@ class WiKV_Controller:
         # ttft_ddl is set 1.2s (based on your requirement) and per_token_ddl is 100 ms
         # max_new_tokens
         # ===================
-        startx = time.perf_counter()
+        print("WiKV:")
 
         for k in range(max_new_tokens):
 
@@ -380,6 +383,7 @@ class WiKV_Controller:
                 m2 = entropy(generated.scores[0]).item()
                 data = torch.tensor([m1, m2]).unsqueeze(0)  # shape: [1, 2]
                 decide = self.model.decision_function(data)[0]
+                startx = time.perf_counter()
                 del generated
                 self.warm_up.set()
             else:
@@ -389,49 +393,48 @@ class WiKV_Controller:
     
             # if KV cache is not fully streamed
             if not self.full_event.is_set():
-
                 while (True):
-                    if not self.full_event.is_set():
-                        start = time.perf_counter()
-                        kv_tuple, _ = self.probe(kv_tuple, target_device='cuda:0')
-                        end = time.perf_counter()
-                        elapsed_time = end - start
-                        #print(f"Prepare {self.threshold*100}% KV CACHE for token {k}: {elapsed_time:.4f}s")
-                        #del kv_pace
-                        start = time.perf_counter()
-                        kv_tmp = copy.deepcopy(kv_tuple)
-                        with torch.no_grad():
-                            generated = model.generate(
-                                input_idx, 
-                                attention_mask = attention_maskx,
-                                past_key_values=kv_tmp, 
-                                max_new_tokens = 1, 
-                                eos_token_id=tokenizer.eos_token_id, 
-                                pad_token_id=tokenizer.eos_token_id, 
-                                return_dict_in_generate=True, 
-                                output_scores=True
-                            )
-                        #kv_tuple = kv_tuple1
-                        # del kv_tuple1
-                        end = time.perf_counter()
-                        elapsed_time = end - start
-                        #print(f"Decode token {k}: {elapsed_time:.4f}s")
+                    start = time.perf_counter()
+                    kv_tuple, _ = self.probe(kv_tuple, target_device='cuda:0')
+                    end = time.perf_counter()
+                    elapsed_time = end - start
+                    #print(f"Prepare {self.threshold*100}% KV CACHE for token {k}: {elapsed_time:.4f}s")
+                    #del kv_pace
+                    start = time.perf_counter()
+                    kv_tmp = copy.deepcopy(kv_tuple)
+                    with torch.no_grad():
+                        generated = model.generate(
+                            input_idx, 
+                            attention_mask = attention_maskx,
+                            past_key_values=kv_tmp, 
+                            max_new_tokens = 1, 
+                            eos_token_id=tokenizer.eos_token_id, 
+                            pad_token_id=tokenizer.eos_token_id, 
+                            return_dict_in_generate=True, 
+                            output_scores=True
+                        )
+                    #kv_tuple = kv_tuple1
+                    # del kv_tuple1
+                    end = time.perf_counter()
+                    elapsed_time = end - start
+                    #print(f"Decode token {k}: {elapsed_time:.4f}s")
 
-                        # check the confidence 
-                        start = time.perf_counter()
-                        m1 = K_coverage(generated.scores[0]).item()
-                        m2 = entropy(generated.scores[0]).item()
-                        data = torch.tensor([m1, m2]).unsqueeze(0) #.to("cuda:0")  # shape: [1, 2]
-                        decide = self.model.decision_function(data)[0]
-                        end = time.perf_counter()
-                        elapsed_time = end - start
-                        #print(f"COnfidence check for token {k}: {elapsed_time:.4f}s")
-                        #print(f"Metric decide: {decide} score")
-                        
-                        
+                    # check the confidence 
+                    start = time.perf_counter()
+                    m1 = K_coverage(generated.scores[0]).item()
+                    m2 = entropy(generated.scores[0]).item()
+                    data = torch.tensor([m1, m2]).unsqueeze(0) #.to("cuda:0")  # shape: [1, 2]
+                    decide = self.model.decision_function(data)[0]
+                    end = time.perf_counter()
+                    elapsed_time = end - start
 
-                    if decide < 0 and (time.perf_counter() - token_st) < ddl:
-                        self.step = 0.2 / ( 1 + 10 * math.e ** (-decide / 20))
+                    del kv_tmp
+                    #print(f"COnfidence check for token {k}: {elapsed_time:.4f}s")
+                    #print(f"Metric decide: {decide} score")
+
+                    if (decide < 1e-4) and ((time.perf_counter() - token_st) < ddl) and ( not self.full_event.is_set()):
+                        self.step = 0.3 / ( 1 + 10 * math.e ** (-decide / 20))
+                        del generated
                         #print("not enough")
                         continue
                     else:
