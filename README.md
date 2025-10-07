@@ -6,7 +6,7 @@ Demo video:
 https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 
 
-# Install
+# Install in RTX 5080 LAPTOP
 
 ### First, create an virtual env with the dependencies in the folder
 0. cd ~/WiKV
