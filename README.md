@@ -2,7 +2,7 @@
 ### Topic of Longchat
 ![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_longchat.gif)
 ### Answer the question in NQA
-![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_nqa.gif){width=100%}
+<img src="https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_nqa.gif)" width="210px">
 ### Summary of long gov report
 ![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_report.gif)
 Demo video:
