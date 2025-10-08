@@ -20,4 +20,9 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 4. pip install flash_attn-2.8.1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 
 # Run experiments
-1. 
+
+## Preperation
+1. Generate the attention score for semantic coding
+   cd scripts
+   bash Attention.sh
+3. 
