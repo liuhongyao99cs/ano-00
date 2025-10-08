@@ -3,6 +3,7 @@ import time
 import math
 import torch
 import random
+import threading
 import argparse
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
@@ -30,6 +31,25 @@ args = p.parse_args()
 model_name = args.model_id
 model_N = args.model
 data_name = args.dataset_name
+
+def dot_loading_thread(think_st, think_end):
+
+    while think_st.is_set():
+        if not think_end.is_set():
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            time.sleep(0.1)
+        time.sleep(0.01)
+
+def start_loading_animation(think_st, think_end):
+    load_thread = threading.Thread(
+        target=dot_loading_thread,
+        args=(think_st, think_end),
+        daemon=True
+    )
+    load_thread.start()
+
+
 
 # your hf account
 # login(token = "hf_xxx")
@@ -77,7 +97,7 @@ for session_id in range(args.start, args.end):
     # CacheGen parameter define
 
     # bitrate level
-    bin_list = [[14,10,6,4,4], [18,16,10,4,4], [22,18,14,10,12], [24,20,16,12,12], [30,24,20,16,16]]
+    bin_list = [[12,12,10,8,6], [16,14,12,12,10], [22,20,14,12,12], [24,20,18,16,12], [30,24,16,16,16]]
     
     layer_group = 9
     code_size = 170 / 8000 * seq_len
@@ -88,11 +108,11 @@ for session_id in range(args.start, args.end):
     chunk_len = math.ceil(seq_len / chunk_num)
     chunk_size = code_size / chunk_num
     bw_trace = [850,370,1360,450,1220,780,340,1190,260,1180,690,1200,1250,270,960,950,1020,780,1040,190.960,1380,290,1000,680,1200,1350,660,450,1400.680,980,860,780,800,1200,450,340,1230]
-    bw_pred = [val*random.uniform(0.8,1.1) for val in bw_trace]
+    bw_pred = [val*random.uniform(0.7,1.2) for val in bw_trace]
 
     # bw adaption: select coding level for each chunk
     level = [1,2,3,4,5]
-    code_size_level = [code_size * 0.3, code_size * 0.6, code_size * 1, code_size * 1.15, code_size * 1.3]
+    code_size_level = [code_size * 0.3, code_size * 0.6, code_size * 1, code_size * 1.2, code_size * 1.4]
     chunk_level = []
     code_size_cachegen = 0
     for i in range(chunk_num):
@@ -107,7 +127,7 @@ for session_id in range(args.start, args.end):
                 code_size_cachegen += code_size_level[j-1] / chunk_num
                 break
     print(chunk_level)
-    chunk_level.append(5)
+    chunk_level.append(3)
 
 
     # re-organize the KV cache based on coding level
@@ -123,26 +143,48 @@ for session_id in range(args.start, args.end):
         kv_dequant = to_blob(kv_dequant)
         kv_dequant = kv_dequant.squeeze(2)  
         kv_cachegen[:, :,:, start:end, :] = kv_dequant
+    
     kv_cachegen = tensor_to_tuple(kv_cachegen)
 
 
     # cachegen decoding 
-    # 
-    MAX_NEW_TOKENS = 250
+    
+    # Print color list
+    BOLD = '\033[1m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+    UNDERLINE = '\033[4m' 
+    TALIC = '\033[3m'
+    BRIGHT_BLACK = '\033[90m'   
+    BRIGHT_RED = '\033[91m'
+    BRIGHT_GREEN = '\033[92m'
+    BRIGHT_YELLOW = '\033[93m'
+    BRIGHT_BLUE = '\033[94m'
+    BRIGHT_MAGENTA = '\033[95m'
+    BRIGHT_CYAN = '\033[96m'
+    BRIGHT_WHITE = '\033[97m'
+
+    MAX_NEW_TOKENS = 14
     os.system('cls' if os.name == 'nt' else 'clear')
     time.sleep(0.5)
-    query = "Query: summarize the given context."
+    Euery = f"{BOLD}{BRIGHT_GREEN}Query: summarize the given context.{RESET}"
+    query = f"{BOLD}{BRIGHT_GREEN}Query: Who did the Witch want to have reveal their own lies?{RESET}"
     for i in range(len(query)):
         print(query[i], end="", flush=True)
         time.sleep(0.03)
     print("\n")
-    print("CacheGen: ")
+    print(f"{BOLD}{BRIGHT_YELLOW}CacheGen:\nThinking", end="", flush=True)
     
     start_time = time.time()
 
     # wait for transferring all KV cache
+    think_st = threading.Event()
+    think_end = threading.Event()
     idx = 0
     streamed_data = 0
+    think_st.set()
+    start_loading_animation(think_st, think_end)
+
     while (True):
         if (streamed_data >= code_size_cachegen * 8):
             streamed_data = 0
@@ -167,14 +209,17 @@ for session_id in range(args.start, args.end):
             new_token = torch.tensor([[1]], device=attention_mask.device)
             attention_mask = torch.cat([attention_mask, new_token], dim=1)
             token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
-            print(token, end="", flush=True)
+            if i == 0:
+                think_end.set()
+                print("\n")
+            print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
     
         if (i == 0):
             end_time = time.time()
             ttft = end_time - start_time
-    print("\n")
+    print(f"{RESET}\n")
     end_time = time.time()
     latency = end_time - start_time
-    print(f"CacheGen processes a {seq_len}-token context with ttft: {ttft:.2f}s and latency: {latency:.2f}s")
+    print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, CacheGen answers the query {BOLD}{BRIGHT_RED}incorrectly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
     print("\n")
     print("\n")

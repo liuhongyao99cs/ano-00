@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 import time
+import sys
+import threading
 import argparse
 import pickle
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
@@ -10,6 +12,24 @@ from huggingface_hub import login
 # =============================================
 # Test the prefill re-computation time of GPU
 # =============================================
+
+def dot_loading_thread(think_st, think_end):
+
+    while think_st.is_set():
+        if not think_end.is_set():
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            time.sleep(0.1)
+        time.sleep(0.01)
+
+def start_loading_animation(think_st, think_end):
+    load_thread = threading.Thread(
+        target=dot_loading_thread,
+        args=(think_st, think_end),
+        daemon=True
+    )
+    load_thread.start()
+
 p = argparse.ArgumentParser()
 p.add_argument("--model_id", type = str, default = "Qwen/Qwen3-4B")
 p.add_argument("--model", type = str, default = "Qwen3-4B")
@@ -41,6 +61,21 @@ model = AutoModelForCausalLM.from_pretrained(
 dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
 data = load_testcases(dataset)
 
+# Print color list
+BOLD = '\033[1m'
+YELLOW = '\033[93m'
+RESET = '\033[0m'
+UNDERLINE = '\033[4m' 
+TALIC = '\033[3m'
+BRIGHT_BLACK = '\033[90m'   
+BRIGHT_RED = '\033[91m'
+BRIGHT_GREEN = '\033[92m'
+BRIGHT_YELLOW = '\033[93m'
+BRIGHT_BLUE = '\033[94m'
+BRIGHT_MAGENTA = '\033[95m'
+BRIGHT_CYAN = '\033[96m'
+BRIGHT_WHITE = '\033[97m'
+
 for session_id in range(args.start, args.end):
     
     if data_name in ['longchat', 'tqa', 'nqa']:
@@ -56,16 +91,20 @@ for session_id in range(args.start, args.end):
     attention_mask = inputs_ids['attention_mask']
     seq_len = input_ids.shape[1]
 
-    MAX_NEW_TOKENS = 250
+    MAX_NEW_TOKENS = 200
 
     os.system('cls' if os.name == 'nt' else 'clear')
     time.sleep(0.5)
-    query = "Query: summarize the given context."
+    query = f"{BOLD}{BRIGHT_GREEN}Query: summarize the given context."
     for i in range(len(query)):
         print(query[i], end="", flush=True)
         time.sleep(0.03)
     print("\n")
-    print("Prefill: ")
+    print(f"{BOLD}{BRIGHT_YELLOW}Prefill:\nThinking", end="", flush=True)
+    think_st = threading.Event()
+    think_end = threading.Event()
+    think_st.set()
+    start_loading_animation(think_st, think_end)
     start_time = time.time()
     for i in range(MAX_NEW_TOKENS):
         if ( i == 0 ):
@@ -84,7 +123,10 @@ for session_id in range(args.start, args.end):
             new_token = torch.tensor([[1]], device=attention_mask.device)
             attention_mask = torch.cat([attention_mask, new_token], dim=1)
             token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
-            print(token, end="", flush=True)
+            if i == 0:
+                think_end.set()
+                print("\n")
+            print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
         else:
             with torch.no_grad():
                 generated = model.generate(
@@ -100,11 +142,14 @@ for session_id in range(args.start, args.end):
                 new_token = torch.tensor([[1]], device=attention_mask.device)
                 attention_mask = torch.cat([attention_mask, new_token], dim=1)
                 token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
-                print(token, end="", flush=True)
+                print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
     
-    print("\n")
+    print(f"{RESET}\n")
     end_time = time.time()
     latency = end_time - start_time
-    print(f"Prefill processes a {seq_len}-token context with ttft: {ttft:.2f}s and latency: {latency:.2f}s")
+    print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, Prefill answers the query {BOLD}{BRIGHT_RED}incorrectly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
     print("\n")
     print("\n")
+
+    while True:
+        a = 1

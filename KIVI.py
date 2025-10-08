@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 import time
+import sys
+import threading
 import argparse
 import pickle
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
@@ -27,6 +29,23 @@ args = p.parse_args()
 model_name = args.model_id #"Qwen/Qwen3-4B"  # 
 model_N = args.model #"Qwen3-4B"
 data_name = args.dataset_name
+
+def dot_loading_thread(think_st, think_end):
+
+    while think_st.is_set():
+        if not think_end.is_set():
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            time.sleep(0.1)
+        time.sleep(0.01)
+
+def start_loading_animation(think_st, think_end):
+    load_thread = threading.Thread(
+        target=dot_loading_thread,
+        args=(think_st, think_end),
+        daemon=True
+    )
+    load_thread.start()
 
 # your hf account
 # login(token = "hf_xxx")
@@ -75,23 +94,46 @@ for session_id in range(args.start, args.end):
     layer_group = 9
     kv_quant, max_q = layer_quantization(kv, bin_list, layer_group)
     kv_dequant = layer_dequantize(kv_quant, max_q, bin_list, layer_group)
-    code_size = 170 / 8000 * seq_len
+    code_size = 190 / 8000 * seq_len
 
     # bw trace for KV streaming
     bw_trace = [850,370,1360,450,1220,780,640,890,660,780,690,1200,1250,270,960,950,1020,780,1040,490.660,1380,290,1000,680,1200,1350,660,450,1400.680,980,860,780,800,1200,450,340,1230]
 
     # KIVI pace decoding
-    MAX_NEW_TOKENS = 250
+
+    # Print color list
+    BOLD = '\033[1m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+    UNDERLINE = '\033[4m' 
+    TALIC = '\033[3m'
+    BRIGHT_BLACK = '\033[90m'   
+    BRIGHT_RED = '\033[91m'
+    BRIGHT_GREEN = '\033[92m'
+    BRIGHT_YELLOW = '\033[93m'
+    BRIGHT_BLUE = '\033[94m'
+    BRIGHT_MAGENTA = '\033[95m'
+    BRIGHT_CYAN = '\033[96m'
+    BRIGHT_WHITE = '\033[97m'
+
+
+    MAX_NEW_TOKENS = 20
     os.system('cls' if os.name == 'nt' else 'clear')
     time.sleep(0.5)
-    query = "Query: summarize the given context."
+    query = f"{BOLD}{BRIGHT_GREEN}Query: summarize the given context."
+    query = f"{BOLD}{BRIGHT_GREEN}Query: Who did the Witch want to have reveal their own lies?"
+    query = f"{BOLD}{BRIGHT_GREEN}Query: What is the first topic we discussed?"
     for i in range(len(query)):
         print(query[i], end="", flush=True)
         time.sleep(0.03)
     print("\n")
-    print("KIVI: ")
+    print(f"{BOLD}{BRIGHT_YELLOW}KIVI:\nThinking", end="", flush=True)
     
     start_time = time.time()
+    think_st = threading.Event()
+    think_end = threading.Event()
+    think_st.set()
+    start_loading_animation(think_st, think_end)
 
     # wait for one-time KV cache transfer
     idx = 0
@@ -120,15 +162,18 @@ for session_id in range(args.start, args.end):
             input_ids = (generated.sequences[0]).unsqueeze(0)
             new_token = torch.tensor([[1]], device=attention_mask.device)
             attention_mask = torch.cat([attention_mask, new_token], dim=1)
+            if i == 0:
+                think_end.set()
+                print("\n")
             token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
-            print(token, end="", flush=True)
+            print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
     
         if (i == 0):
             end_time = time.time()
             ttft = end_time - start_time
-    print("\n")
+    print(f"{RESET}\n")
     end_time = time.time()
     latency = end_time - start_time
-    print(f"KIVI processes a {seq_len}-token context with ttft: {ttft:.2f}s and latency: {latency:.2f}s")
+    print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, KIVI answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
     print("\n")
     print("\n")
