@@ -1,5 +1,5 @@
 # WiKV
-Welcome to WiKV, which overlaps the wireless KV progressive streaming with pacing token decoding to reduce the TTFT and latency in longtext serving.
+Welcome to WiKV, which overlaps the wireless KV progressive streaming with pacing token decoding to reduce the TTFT and latency in long context serving.
 
 ### Demo-gif: Summary of long gov report
 ![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_report.gif)
