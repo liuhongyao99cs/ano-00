@@ -1,6 +1,6 @@
 # WiKV
 ### Topic of Longchat
-![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_longchat.gif)
+![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_longchat1.gif)
 ### Summary of long gov report
 ![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_report.gif)
 Demo video:
