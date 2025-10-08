@@ -1,12 +1,14 @@
 # WiKV
+Welcome to WiKV, which overlaps the wireless KV progressive streaming with pacing token decoding to reduce the TTFT and latency in longtext serving.
 
-### Demo: Summary of long gov report
+### Demo-gif: Summary of long gov report
 ![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_report.gif)
+
 ### Demo video:
 https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 
 
-# Install WiKV in RTX 5080 LAPTOP with Linux x86-64
+# Install WiKV (RTX 5080 + Ubuntu 24.04)
 
 ### First, create an virtual env with the dependencies in the folder
 0. cd ~/WiKV
@@ -16,3 +18,6 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 3. pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
 ### Install Flash Attention 2 (download wheel from https://github.com/Dao-AILab/flash-attention/releases)
 4. pip install flash_attn-2.8.1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
+# Run experiments
+1. 
