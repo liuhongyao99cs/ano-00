@@ -22,7 +22,11 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 # Run experiments
 
 ## Preperation
-1. Generate the attention score for semantic coding
+1. Generate the attention score for semantic coding:
+   
    cd scripts
-   bash Attention.sh
-3. 
+   bash Attention.sh (specify your hidden, attention save dirs and the dataset name)
+   
+2. Obtain the KV cache of datasets
+
+   bash KV_cache.sh
