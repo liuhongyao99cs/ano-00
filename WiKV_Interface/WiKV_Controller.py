@@ -40,6 +40,8 @@ class WiKV_Controller:
         self.ready_event = threading.Event() 
         self.full_event = threading.Event()
         self.warm_up = threading.Event()
+        self.think_st = threading.Event()
+        self.think_end = threading.Event()
 
     def kv_pool_initialize(self, kv):
         # cpu kv pool to handle the streaming data
@@ -351,6 +353,23 @@ class WiKV_Controller:
         self.model = model
         torch.save(k_top, f"{self.args.save_metric_dir}/predictor.pt")
 
+    def dot_loading_thread(self):
+
+        while self.think_st.is_set():
+            if not self.think_end.is_set():
+                sys.stdout.write('.')
+                sys.stdout.flush()
+                time.sleep(0.1)
+            time.sleep(0.01)
+
+    def start_loading_animation(self):
+        self.load_thread = threading.Thread(
+            target=self.dot_loading_thread, 
+            daemon=True
+        )
+        self.load_thread.start()
+    
+
     def pace_decode(self, kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, max_new_tokens):
 
         # ===================
@@ -361,7 +380,25 @@ class WiKV_Controller:
         # ttft_ddl is set 1.2s (based on your requirement) and per_token_ddl is 100 ms
         # max_new_tokens
         # ===================
-        print("WiKV:")
+
+        BOLD = '\033[1m'
+        YELLOW = '\033[93m'
+        RESET = '\033[0m'
+        UNDERLINE = '\033[4m' 
+        TALIC = '\033[3m'
+        BRIGHT_BLACK = '\033[90m'    # 灰色
+        BRIGHT_RED = '\033[91m'
+        BRIGHT_GREEN = '\033[92m'
+        BRIGHT_YELLOW = '\033[93m'
+        BRIGHT_BLUE = '\033[94m'
+        BRIGHT_MAGENTA = '\033[95m'
+        BRIGHT_CYAN = '\033[96m'
+        BRIGHT_WHITE = '\033[97m'
+
+        print(f"{BOLD}{YELLOW}WiKV:\nThinking", end="", flush=True)
+        self.think_st.set()
+        self.start_loading_animation()
+        idx = 0
 
         for k in range(max_new_tokens):
 
@@ -390,10 +427,12 @@ class WiKV_Controller:
                 ddl = per_token_ddl
 
             token_st = time.perf_counter()
+            flag = True
     
             # if KV cache is not fully streamed
-            if not self.full_event.is_set():
-                while (True):
+            #if not self.full_event.is_set():
+            while (not self.full_event.is_set()):
+                    flag = False
                     start = time.perf_counter()
                     kv_tuple, _ = self.probe(kv_tuple, target_device='cuda:0')
                     end = time.perf_counter()
@@ -432,32 +471,36 @@ class WiKV_Controller:
                     #print(f"COnfidence check for token {k}: {elapsed_time:.4f}s")
                     #print(f"Metric decide: {decide} score")
 
-                    if (decide < 1e-4) and ((time.perf_counter() - token_st) < ddl) and ( not self.full_event.is_set()):
-                        self.step = 0.3 / ( 1 + 10 * math.e ** (-decide / 20))
+                    if (decide < 1e-3) and ((time.perf_counter() - token_st) < ddl) :
+                        self.step = 0.25/ ( 1 + 10 * math.e ** (-decide / 20))
                         del generated
                         #print("not enough")
                         continue
                     else:
-                        
+                        if k == 0:
+                            self.think_end.is_set()
+                            self.think_st.clear()
+                            print(f"{RESET}\n")
                         end = time.perf_counter()
                         if k == 0 : 
                             ttft = end - token_st
                         
                         token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
-                        print(token, end="", flush=True)
+                        print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
                         input_idx = (generated.sequences[0]).unsqueeze(0)
                         new_token = torch.tensor([[1]], device=attention_maskx.device)
                         attention_maskx = torch.cat([attention_maskx, new_token], dim=1)
                         kv_tuple = generated['past_key_values']
                                
                         del generated  
-                        #ecode_token.append(generated.sequences[0][-1])
-                        self.step = 0.1
-                        #print(f"Decoded token_num: {len(decode_token)}")
+                        self.step = 0.08
                         break
             
             # all KV cache is streamed
-            else:
+            if flag and self.full_event.is_set():
+                if idx == 0:
+                    idx += 1
+                    kv_tuple, _ = self.probe(kv_tuple, target_device='cuda:0')
                 with torch.no_grad():
                     
                     generated = model.generate(
@@ -476,11 +519,12 @@ class WiKV_Controller:
                 attention_maskx = torch.cat([attention_maskx, new_token], dim=1)
                 kv_tuple = generated['past_key_values']
                 token = tokenizer.decode(generated.sequences[0][-1], skip_special_tokens=True)
-                print(token, end="", flush=True)
+                print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
                 del generated
         
         end = time.perf_counter()
         latency = end - startx
-        print("\n")
+        print(f"{RESET}\n")
 
         return ttft, latency
+
