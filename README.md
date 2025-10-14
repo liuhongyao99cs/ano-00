@@ -22,6 +22,10 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
    pip install flash_attn-2.8.1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 
 ## Install WiKV in Jetson
+Jetson is hard to setup a python virtual env since it is hard to find proper wheels in arm64.
+We recommend use Jetson-container to build your own container which includes flash-attention, bitsandbytes, transformers and pytorch.
+```bash
+
 
 # Run experiments
 
