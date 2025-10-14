@@ -24,8 +24,11 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 ## Install WiKV in Jetson
 Jetson is hard to setup a python virtual env since it is hard to find proper wheels in arm64.
 We recommend use Jetson-container to build your own container which includes flash-attention, bitsandbytes, transformers and pytorch.
+Jetson container: https://github.com/dusty-nv/jetson-containers
 ```bash
-
+git clone https://github.com/dusty-nv/jetson-containers
+bash jetson-containers/install.sh
+jetson-containers build --name=wikv_container pytorch transformers flash-attention bitsandbytes
 
 # Run experiments
 
