@@ -11,7 +11,9 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 # Install WiKV (RTX 5080 + Ubuntu 24.04)
 
 ### First, create an virtual env with the dependencies in the folder
-0. cd ~/WiKV
+1. Navigate to the project folder:
+   ```bash
+   cd ~/WiKV
 1. conda env create -f env.yml -n WiKV
 2. conda activate WiKV
 ### Install required pytorch (For RTX 5080, CUDA 12.8 is needed)
