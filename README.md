@@ -9,7 +9,6 @@ https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
 
 
 ## Install WiKV in LAPTOP RTX 5080 with Linux x86-64
-### First, create an virtual env with the dependencies in the folder
 1. Setup virtual python env in miniconda3 and install dependencies
    ```bash
    cd DOWNLOAD_PATH/WiKV
