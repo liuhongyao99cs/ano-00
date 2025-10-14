@@ -29,15 +29,14 @@ Jetson container: https://github.com/dusty-nv/jetson-containers.
    git clone https://github.com/dusty-nv/jetson-containers
    bash jetson-containers/install.sh
    jetson-containers build --name=wikv_container pytorch transformers flash-attention bitsandbytes
+```
 
 ## Experiments
 
 1. Generate the attention score for semantic coding, run (specify your hidden, attention save dirs and the dataset name; and if in Jetson docker run your container):
    ```bash
-   ...
    cd scripts
    bash Attention.sh
-   ...
    
 2. Obtain the KV cache of datasets, run:
    ```bash
