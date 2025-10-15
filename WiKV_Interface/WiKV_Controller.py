@@ -284,11 +284,12 @@ class WiKV_Controller:
                 seq_len = input_ids.shape[1]
 
                 kv_parent_root = Path(args.save_kv_dir).parent
-                if not os.path.exists(f"{kv_parent_root}/{self.args.model}/{datax}/raw_kv_{session_id}.pt"):
+                if not os.path.exists(f"{kv_parent_root}/{datax}/raw_kv_{session_id}.pt"):
+                    #print(f"{kv_parent_root}/{self.args.model}/{datax}/raw_kv_{session_id}.pt")
                     print("Compute the KV cache first...")
                     sys.exit(1)
 
-                raw_kv = torch.load(f"{kv_parent_root}/{self.args.model}/{datax}/raw_kv_{session_id}.pt")
+                raw_kv = torch.load(f"{kv_parent_root}/{datax}/raw_kv_{session_id}.pt")
                 
                 kv = tensor_to_tuple(raw_kv)
                 del raw_kv
