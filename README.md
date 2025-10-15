@@ -30,6 +30,12 @@ Jetson container: https://github.com/dusty-nv/jetson-containers.
    bash jetson-containers/install.sh
    jetson-containers build --name=wikv_container pytorch transformers flash-attention bitsandbytes
 ```
+Then modify the container to install sklearn packages and other pagkages you need:
+```bash
+   FROM wikv_container:r36.4.tegra-aarch64-cu126-22.04
+   RUN pip install --no-cache-dir scikit-learn
+   sudo docker build -t wikv
+```
 
 ## Experiments
 
