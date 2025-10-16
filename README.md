@@ -39,19 +39,21 @@ Then modify the container to install sklearn packages and other pagkages you nee
 
 ## Experiments
 
-1. Generate the attention score for semantic coding, run (specify your hidden, attention save dirs and the dataset name; and if in Jetson docker run your container):
+1. Generate the attention score for semantic coding, run (specify your dir in scripts properly) in Laptop:
    ```bash
    cd scripts
    bash Attention.sh
+   cd jetson_scripts
+   bash Attention_jetson.sh
    
-2. Obtain the KV cache of datasets, run:
+3. Obtain the KV cache of datasets, run:
    ```bash
    bash KV_cache.sh
 
-3. Run WiKV:
+4. Run WiKV:
    ```bash
    bash main.sh
 
-4. Run baseline: compute / prefill directly
+5. Run baseline: compute / prefill directly
    ```bash
    bash prefill.sh
