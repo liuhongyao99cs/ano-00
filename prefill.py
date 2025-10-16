@@ -147,7 +147,7 @@ for session_id in range(args.start, args.end):
     print(f"{RESET}\n")
     end_time = time.time()
     latency = end_time - start_time
-    print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, Prefill answers the query {BOLD}{BRIGHT_RED}incorrectly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+    print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, Prefill answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
     print("\n")
     print("\n")
 
