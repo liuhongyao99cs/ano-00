@@ -288,29 +288,31 @@ class WiKV_Controller:
                     #print(f"{kv_parent_root}/{self.args.model}/{datax}/raw_kv_{session_id}.pt")
                     print("Compute the KV cache first...")
                     sys.exit(1)
-
-                raw_kv = torch.load(f"{kv_parent_root}/{datax}/raw_kv_{session_id}.pt")
                 
-                kv = tensor_to_tuple(raw_kv)
-                del raw_kv
-                # generate logit scores through model.generate
-                generated = self.model.generate(input_ids, past_key_values = kv, max_new_tokens = 100, return_dict_in_generate=True, eos_token_id=self.tokenizer.eos_token_id, pad_token_id=self.tokenizer.eos_token_id, attention_mask=attention_mask, output_scores=True, output_attentions=False)
-                prediction = self.tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
-                #print(prediction)
-                del kv
-                print(f"Dumping the metrics for data {datax} sample {session_id}...")
-                if not os.path.exists(self.args.save_metric_dir):
-                    os.makedirs(self.args.save_metric_dir, exist_ok=True)
-                if not os.path.exists(f"{self.args.save_metric_dir}/{datax}"):
-                    os.makedirs(f"{self.args.save_metric_dir}/{datax}", exist_ok=True)
-                k_top = []
-                entro = []
-                for k in range(len(generated.scores)):
-                    k_top.append(K_coverage(generated.scores[k]).item())
-                    entro.append(entropy(generated.scores[k]).item())
-                torch.save(k_top, f"{self.args.save_metric_dir}/{datax}/k_top_{session_id}.pt")
-                torch.save(entro, f"{self.args.save_metric_dir}/{datax}/entro_{session_id}.pt")
-                del generated
+                if not os.path.exists(f"{self.args.save_metric_dir}/{datax}/k_top_{session_id}.pt"):
+
+                    raw_kv = torch.load(f"{kv_parent_root}/{datax}/raw_kv_{session_id}.pt")
+                    
+                    kv = tensor_to_tuple(raw_kv)
+                    del raw_kv
+                    # generate logit scores through model.generate
+                    generated = self.model.generate(input_ids, past_key_values = kv, max_new_tokens = 100, return_dict_in_generate=True, eos_token_id=self.tokenizer.eos_token_id, pad_token_id=self.tokenizer.eos_token_id, attention_mask=attention_mask, output_scores=True, output_attentions=False)
+                    prediction = self.tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
+                    #print(prediction)
+                    del kv
+                    print(f"Dumping the metrics for data {datax} sample {session_id}...")
+                    if not os.path.exists(self.args.save_metric_dir):
+                        os.makedirs(self.args.save_metric_dir, exist_ok=True)
+                    if not os.path.exists(f"{self.args.save_metric_dir}/{datax}"):
+                        os.makedirs(f"{self.args.save_metric_dir}/{datax}", exist_ok=True)
+                    k_top = []
+                    entro = []
+                    for k in range(len(generated.scores)):
+                        k_top.append(K_coverage(generated.scores[k]).item())
+                        entro.append(entropy(generated.scores[k]).item())
+                    torch.save(k_top, f"{self.args.save_metric_dir}/{datax}/k_top_{session_id}.pt")
+                    torch.save(entro, f"{self.args.save_metric_dir}/{datax}/entro_{session_id}.pt")
+                    del generated
 
     def boundary_predictor(self):
 
