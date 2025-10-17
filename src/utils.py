@@ -163,7 +163,6 @@ class HuffmanCodec:
         self.reverse_codebook = {}  # code -> symbol
     
     def build_codebook(self, symbols):
-        """根据符号序列构建 Huffman 码本"""
         if len(symbols) == 0:
             return
         
