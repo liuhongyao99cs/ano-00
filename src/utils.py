@@ -691,19 +691,12 @@ def layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, sessi
 
 
         key_states = repeat_kv(key_states, model.config.num_attention_heads // model.config.num_key_value_heads)
-        
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * (model.config.head_dim ** -0.5)
-        if attention_mask is not None:
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
         
         # control the cuda memory
         del query_states, key_states, cos, sin, position_embeddings
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-        
-        
 
         attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float16)
         attn_weights = F.dropout(attn_weights, p=0, training=False)
@@ -728,7 +721,7 @@ def atten_extract_(model, input_ids, attention_mask, args, session_id=0):
     os.makedirs(args.save_hid_dir, exist_ok=True)
     
     for layer_id in range(model.config.num_hidden_layers):
-        print(f"Compute the attention weights of {layer_id}-layer...\n")
+        print(f"Compute the attention weights for dataset: {args.dataset_name}, doc_id: {session_id}, and layer: {layer_id}...\n")
         layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, session_id)
         
        
