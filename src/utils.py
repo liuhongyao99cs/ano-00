@@ -644,8 +644,6 @@ def layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, sessi
                 "full_attention": create_causal_mask(**mask_kwargs),
         }
         
-        attention_mask=causal_mask_mapping['full_attention']
-
         # load model layer
         #print(model.config)
         #print(model.config.model_type)
