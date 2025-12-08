@@ -4,7 +4,12 @@ import json
 import heapq
 import torch
 import pickle
+import yt_dlp
+from PIL import Image
+from typing import List, Optional
+import cv2
 import numpy as np
+import torch.nn as nn
 import torch.nn.functional as F
 from collections import Counter
 from typing import Callable, Optional, Union
@@ -12,6 +17,9 @@ from typing import Callable, Optional, Union
 from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.models.qwen3.modeling_qwen3 import repeat_kv, apply_rotary_pos_emb
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import apply_multimodal_rotary_pos_emb, repeat_kv
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
+
 #from transformers.models.mistral.modeling_mistral import repeat_kv, apply_rotary_pos_emb
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
@@ -30,6 +38,108 @@ def load_testcases(test_file):
 
     return test_cases
 
+# load video from datasets
+def download_youtube_video(url, output_folder="temp_videos"):
+    """
+    下载 YouTube 视频并返回本地文件路径
+    """
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    
+    # yt-dlp 配置：下载为 mp4，且文件名以视频 ID 命名以防重复
+    ydl_opts = {
+        # 修改点：去掉带 + 号的选项，只保留 'best[ext=mp4]'
+        # 这会直接下载包含音轨的单一文件（通常限制在 720p），不需要 FFmpeg 合并
+        'format': 'best[ext=mp4]/best', 
+        'outtmpl': os.path.join(output_folder, '%(id)s.%(ext)s'),
+        'quiet': True,
+        'no_warnings': True
+    }
+
+    print(f"正在下载 YouTube 视频: {url} ...")
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            print(f"下载完成: {filename}")
+            return filename
+    except Exception as e:
+        print(f"下载失败: {e}")
+        return None
+    
+def extract_frames(
+    video_path: str,
+    output_dir: Optional[str] = None,
+    frame_interval: int = 30,        # Extract one frame every N frames (e.g., 30 means 1 frame per second if video is 30fps)
+    time_interval: float = None,     # Or extract one frame every N seconds (e.g., 1.0 means 1 frame per second)
+    save_images: bool = True,        # Whether to save frames as image files
+    img_format: str = "jpg"          # Image format to save ('jpg', 'png', etc.)
+) -> List:
+    """
+    Extract frames from a video.
+
+    Args:
+        video_path (str): Path to the video file.
+        output_dir (str, optional): Directory to save images. If None and save_images=True, it will be created automatically.
+        frame_interval (int): Frame interval (e.g., 30 means extract one frame every 30 frames). Mutually exclusive with time_interval, time_interval takes precedence.
+        time_interval (float, optional): Time interval (seconds), e.g., 1.0 means extract one frame every 1 second.
+        save_images (bool): Whether to save frames as image files.
+        img_format (str): Image format to save, such as 'jpg' or 'png'.
+
+    Returns:
+        List[np.ndarray]: List of extracted frames (each element is an HWC BGR image array).
+    """
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file does not exist: {video_path}")
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError("Unable to open video file")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if time_interval is not None:
+        frame_interval = int(fps * time_interval)
+
+    if frame_interval <= 0:
+        frame_interval = 1
+
+    frames = []
+    frame_count = 0
+    saved_count = 0
+
+    if save_images and output_dir is None:
+        output_dir = os.path.splitext(video_path)[0] + "_frames"
+        os.makedirs(output_dir, exist_ok=True)
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if frame_count % frame_interval == 0:
+            frames.append(frame)
+            if save_images:
+                img_path = os.path.join(output_dir, f"frame_{saved_count:06d}.{img_format}")
+                cv2.imwrite(img_path, frame)
+                saved_count += 1
+
+        frame_count += 1
+
+    cap.release()
+
+    print(f"Extracted {len(frames)} frames from {total_frames} total frames (FPS: {fps:.2f})")
+    if save_images:
+        print(f"Images saved to: {output_dir}")
+
+    pil_images = []
+    for frame in frames:
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(rgb_frame)
+        pil_images.append(pil_img)
+
+    return pil_images
 # ====================================
 # KV cache load in tensor, transfer to tuple for inference
 # ===================================
@@ -724,6 +834,185 @@ def atten_extract_(model, input_ids, attention_mask, args, session_id=0):
         print(f"Compute the attention weights for dataset: {args.dataset_name}, doc_id: {session_id}, and layer: {layer_id}...\n")
         layer_atten_extract_(model, input_ids, attention_mask, layer_id, args, session_id)
         
+def attention_attract_modality(args, model, inputs, doc_id):
+    HIDDEN_DIR = f"/home/hongyao/data1/Hidden_states/Qwen2.5-VL/video_mme/"
+    if not os.path.exists(HIDDEN_DIR):
+            os.makedirs(HIDDEN_DIR, exist_ok=True)
+
+    ATT_DIR = f"/home/hongyao/data1/Attention/Qwen2.5-VL/video_mme/"
+    if not os.path.exists(ATT_DIR):
+            os.makedirs(ATT_DIR, exist_ok=True)        
+
+    use_cache = None
+    past_key_values = None
+    cache_position = None
+    position_ids = None
+    attention_mask = inputs["attention_mask"]
+    lm = model.language_model
+    hidden_states = lm.embed_tokens(inputs["input_ids"])
+    file_path = os.path.join(HIDDEN_DIR, f"hidden_s{doc_id}_l{0}.pt")
+    torch.save(hidden_states.cpu(), file_path) 
+
+    if use_cache and past_key_values is None:
+        past_key_values = DynamicCache(config=lm.config)
+
+    inputs_embeds = lm.embed_tokens(inputs["input_ids"])
+
+    if cache_position is None:
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        cache_position = torch.arange(
+            past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+        )
+
+    # the hard coded `3` is for temporal, height and width.
+    if position_ids is None:
+        position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
+    elif position_ids.ndim == 2:
+        position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
+
+    if position_ids.ndim == 3 and position_ids.shape[0] == 4:
+        text_position_ids = position_ids[0]
+        position_ids = position_ids[1:]
+    else:
+        # If inputs are not packed (usual 3D positions), do not prepare mask from position_ids
+        text_position_ids = None
+
+    # It may already have been prepared by e.g. `generate`
+    if not isinstance(causal_mask_mapping := attention_mask, dict):
+        # Prepare mask arguments
+        mask_kwargs = {
+            "config": lm.config,
+            "input_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "cache_position": cache_position,
+            "past_key_values": past_key_values,
+            "position_ids": text_position_ids,
+        }
+        # Create the masks
+        causal_mask_mapping = {
+            "full_attention": create_causal_mask(**mask_kwargs),
+        }
+        # The sliding window alternating layers are not always activated depending on the config
+        if lm.has_sliding_layers:
+            causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
+
+    with torch.no_grad():
+        position_embeddings = lm.rotary_emb(hidden_states, position_ids)
+        for i, layer in enumerate(lm.layers):
+            if attention_mask is not None:
+                layer_outputs = layer(
+                    hidden_states=hidden_states,
+                    attention_mask=causal_mask_mapping[layer.attention_type],
+                    position_ids=text_position_ids,
+                    use_cache=use_cache,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                )
+
+            hidden_states = layer_outputs[0]  
+            del layer_outputs
+            file_path = os.path.join(HIDDEN_DIR, f"hidden_s{doc_id}_l{i+1}.pt")
+            torch.save(hidden_states.cpu(), file_path)   
+            print(f"Dataset: {args.dataset_name} doc_id: {doc_id} Hidden states layer {i} done...")
+
+
+    for i, layer in enumerate(lm.layers):
+        with torch.no_grad():
+        
+        # load the hidden as input
+            if i == 0:
+                hidden_states = lm.embed_tokens(inputs["input_ids"])
+                hidden_states = lm.norm(hidden_states)
+            else:
+                hidden_path = os.path.join(HIDDEN_DIR, f"hidden_s{doc_id}_l{i-1}.pt")
+                if os.path.exists(hidden_path):
+                    hidden_states = torch.load(hidden_path)
+                else:
+                    raise FileNotFoundError(f"hidden file {hidden_path} not exists...")
+
+            hidden_states = hidden_states.to("cuda:0")
+
+            bsz, q_len, _ = hidden_states.size()
+            layer = lm.layers[0]
+
+            query_states = layer.self_attn.q_proj(hidden_states)
+            key_states = layer.self_attn.k_proj(hidden_states)
+            value_states = layer.self_attn.v_proj(hidden_states)
+
+
+
+            query_states = query_states.view(bsz, q_len, model.config.text_config.num_attention_heads, -1).transpose(1, 2)
+            key_states = key_states.view(bsz, q_len, model.config.text_config.num_key_value_heads   , -1).transpose(1, 2)
+            value_states = value_states.view(bsz, q_len, model.config.text_config.num_key_value_heads, -1).transpose(1, 2)
+
+
+
+            position_embeddings = lm.rotary_emb(hidden_states, position_ids)
+            cos, sin = position_embeddings
+            query_states, key_states = apply_multimodal_rotary_pos_emb(
+                query_states, key_states, cos, sin, model.config.text_config.rope_scaling["mrope_section"]
+            )
+
+            key_states = repeat_kv(key_states, model.config.text_config.num_attention_heads//model.config.text_config.num_key_value_heads)
+            value_states = repeat_kv(value_states, model.config.text_config.num_attention_heads//model.config.text_config.num_key_value_heads)
+            del hidden_states
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            '''
+
+            seg_len = 500 # 500 tokens is query each batch to comute attention
+            N = query_states.shape[2] // seg_len + 1
+            for k in range(N):
+                query = query_states[:,:,seg_len*k:min(seg_len*(k+1),query_states.shape[2]),:]
+                attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * (model.config.text_config.num_key_value_heads**-0.5)
+
+                if attention_mask is not None:
+                    causal_mask = _prepare_4d_causal_attention_mask(
+                        inputs_embeds=inputs_embeds,
+                        attention_mask=attention_mask,
+                        past_key_values_length = 0,
+                        input_shape=attention_mask.shape
+                    )
+                    
+                    attn_weights = attn_weights + causal_mask[:,:,seg_len*k:min(seg_len*(k+1),query_states.shape[2]),:]
+                    
+
+                attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float16)
+                #attn_weights = nn.functional.dropout(attn_weights, p=0.0, training=False)
+
+                attn_path = os.path.join(ATT_DIR, f"attn_s{doc_id}_l{i}_seg{k}.pt")
+                torch.save(attn_weights, attn_path)
+                print(f"Dataset: {args.dataset_name} doc_id: {doc_id} Attention layer {i} seg {k} done...")
+
+            '''
+
+            query_states = query_states[:,:,-101:-1,:]
+
+            attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * (model.config.text_config.num_key_value_heads**-0.5)
+            
+            # control the cuda memory
+            del query_states, key_states, cos, sin, position_embeddings
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float16)
+            attn_weights = F.dropout(attn_weights, p=0, training=False)
+            
+            attn_weights = attn_weights.squeeze(0)
+            attn_weights = attn_weights.view(model.config.num_attention_heads // model.config.num_key_value_heads, model.config.num_key_value_heads, *attn_weights.shape[1:])
+            attn_weights = attn_weights.sum(dim=0)
+            # print(attn_weights.shape)
+            attn_path = os.path.join(ATT_DIR, f"attn_s{doc_id}_l{i}.pt")
+            torch.save(attn_weights, attn_path)
+
+            del value_states
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            del attn_weights
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
        
 '''
 def probe_task(kv_pace, kv_tuple, input_idx, attention_maskx, controller, model, tokenizer, decode_token):
