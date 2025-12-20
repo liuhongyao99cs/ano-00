@@ -7,12 +7,19 @@ import numpy as np
 import threading
 import argparse
 import pickle
+from pathlib import Path
 import concurrent.futures
 import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+
 from src import *
 from WiKV_Interface import WiKV_Controller, WiKV_Encode
 from huggingface_hub import login
+
+import warnings
+import logging
+warnings.filterwarnings("ignore")
+logging.getLogger("transformers").setLevel(logging.ERROR)
 
 # =============================================
 # Main controller of WiKV
@@ -44,18 +51,37 @@ login(token = "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")
 if __name__ == "__main__":
 
     # load model, remember use 4bit, half() and flash_attention_2 to reduce memory
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        load_in_4bit=True,
-        dtype=torch.float16, 
-        attn_implementation="flash_attention_2",
-        device_map="auto",
-        output_attentions=False
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,              # 开启 4-bit 加载
+        bnb_4bit_use_double_quant=True, # 开启双重量化 (进一步节省显存)
+        bnb_4bit_quant_type="nf4",      # 使用 NF4 格式 (精度损失最小)
+        bnb_4bit_compute_dtype=torch.bfloat16 # 计算时使用的精度 (建议保持 bf16)
     )
 
+    if data_name in ['videomme']:
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            model_name,
+            quantization_config=bnb_config,  
+            device_map="auto",               
+            attn_implementation="flash_attention_2"
+        )
+
+        processor = AutoProcessor.from_pretrained(model_name)
+
+    else:
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            quantization_config=bnb_config, 
+            dtype=torch.float16, 
+            attn_implementation="flash_attention_2",
+            device_map="auto",
+            output_attentions=False
+        )
+
     # load dataset from jsonl
-    dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
+    dataset = args.path_to_context  
     data = load_testcases(dataset)
 
     if not os.path.exists(args.save_encode_dir):
@@ -68,22 +94,68 @@ if __name__ == "__main__":
         if data_name in ['longchat', 'tqa', 'nqa']:
             input_text = data[session_id]['prompt'] 
         elif data_name in ['hotpotqa']:
-            input_text = data[session_id]['context'] + "Based on given passages, answer the question: " + data[session_id]['input']
-        else:
-            input_text = data[session_id]['context'] + "Summarize the given context in 220 words."
-            
-        inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
+            input_text = data[session_id]['context'] + "Based on given passages, answer the question: " + data[session_id]['input'] 
+        elif data_name in ['gov_report']:
+            input_text = data[session_id]['context'] + "Summarize the given context in 250 tokens." 
+        elif data_name in ['videomme']:
+            input_text = "Please answer the following multiple-choice question. Select the correct option (A, B, C, or D) and provide a brief explanation for your choice. Format your response as: Answer: [Option] Explanation: [Your reasoning]" + data[session_id]['question']
 
-        input_ids = inputs_ids['input_ids']
-        attention_mask = inputs_ids['attention_mask']
+            
+        if data_name in ['videomme']:
+            url = data[session_id]["url"]
+            video_path = Path(dataset).parent
+            download_youtube_video(url=url, session_id=session_id, output_folder=video_path)
+            video =video_path/f"{session_id}.mp4"
+            frames = extract_frames(
+                video_path = video,
+                time_interval=0.5,
+            )
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "video",
+                            "video": video,
+                            "max_pixels": 360 * 420,
+                            "fps": 2.0, # 降低FPS以减少token数量方便演示
+                        },
+                        {"type": "text", "text": input_text},
+                    ],
+                }
+            ]
+
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            inputs = processor(
+                text=[text],
+                videos=[frames],  
+                padding=True,
+                return_tensors="pt",
+            )
+
+
+            # Move inputs to the same device as the model (GPU)
+            inputs = inputs.to(model.device)
+            input_ids = inputs['input_ids']
+            attention_mask = inputs['attention_mask']
+            tokenizer = processor
+            args.flag = 'VLM'
+        else:
+
+            inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
+            input_ids = inputs_ids['input_ids']
+            attention_mask = inputs_ids['attention_mask']
+            args.flag = 'LLM'
 
         seq_len = input_ids.shape[1]
         print(f"Context length: {seq_len} token")
 
         encoder = WiKV_Encode(args=args, seq_len=seq_len, config=model.config, session=session_id, window_size=model.config.num_hidden_layers, device=next(model.parameters()).device)
         controller = WiKV_Controller(args=args,model=model, tokenizer = tokenizer, shape=(1000, 128), dtype=torch.float32, threshold=0.3)
-        # controller.Metric(args)
+        controller.Metric(args)
         controller.boundary_predictor()
+
 
         encoder.Att_Loading()
         kv_quant, kv_dequant = encoder.Semantic_Encode()
@@ -132,8 +204,9 @@ if __name__ == "__main__":
         
         ttft = 0
         latency = 0
-        ttft_ddl = 1 * seq_len / 8000      # 1200 ms for the first token
-        per_token_ddl = 0.1 # 100 ms max time for waiting token decoding
+        ttft_ddl = 1.3 * seq_len / 8000      # 1200 ms for the first token
+        per_token_ddl = 0.15 # 100 ms max time for waiting token decoding
+
 
         controller.kv_pool_initialize(kv_dequant)
         controller.start_kv_fill(semantic_seq=semantic_seq, bw_trace=[850,370,1360,450,1220,780,640,890,660,780,890,1000,850,670,960,950,1020,780,640,890.660,780,890,1000,680,1200,1350,660,450,1400.680,980,860,780,800,1200,450,340,1230], kv_gpu=kv_dequant, code_size=code_size)
@@ -155,15 +228,25 @@ if __name__ == "__main__":
         print("\n")
         os.system('cls' if os.name == 'nt' else 'clear')
         time.sleep(0.5)
-        query = f"{BOLD}{BRIGHT_GREEN}Query: Summarize the given context.{RESET}"
-        query = f"{BOLD}{BRIGHT_GREEN}Query: Who did the Witch want to have reveal their own lies?{RESET}"
-        #query = f"{BOLD}{BRIGHT_GREEN}Query: What is the first topic we discussed?{RESET}"
+        
+        if data_name in ['gov_report']:
+            query = f"{BOLD}{BRIGHT_GREEN}Query: Summarize the given context.{RESET}"
+        elif data_name in ['nqa']:
+            query = f"{BOLD}{BRIGHT_GREEN}Query: Who did the Witch want to have reveal their own lies?{RESET}"
+        elif data_name in ['longchat']:
+            query = f"{BOLD}{BRIGHT_GREEN}Query: What is the first topic we discussed?{RESET}"
+        elif data_name in ['videomme']:
+            query = f"{BOLD}{BRIGHT_GREEN}Query: {data[session_id]['question']} {RESET}"
+
         for i in range(len(query)):
             print(query[i], end="", flush=True)
             time.sleep(0.03)
         print("\n")
-        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, 8)
-        print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, WiKV answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, inputs, 100)
+        #print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, WiKV answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+        print(f"{BOLD}{BRIGHT_WHITE}  Summary: Given a {input_ids.shape[1]}-token video, WiKV answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+        print("\n")
         print("\n")
         # probe_thread.start()  
         # probe_thread.join()
+        
