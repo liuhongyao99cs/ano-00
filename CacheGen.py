@@ -53,7 +53,6 @@ def start_loading_animation(think_st, think_end):
 
 # your hf account
 # login(token = "hf_xxx")
-login(token = "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")
 
 # load model, remember use 4bit, half() and flash_attention_2 to reduce memory
 tokenizer = AutoTokenizer.from_pretrained(model_name)
