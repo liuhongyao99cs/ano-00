@@ -4,9 +4,9 @@
 sudo docker run -it --rm \
   --network=host \
   --runtime=nvidia \
-  --volume /home/hongyao/Desktop/WiKV:/workspace \
-  --volume /home/hongyao/Desktop/jetson-containers/data:/data \
-  --volume /home/hongyao/Desktop/data:/dataspace \
+  --volume /home/usrname/Desktop/WiKV:/workspace \
+  --volume /home/usrname/Desktop/jetson-containers/data:/data \
+  --volume /home/usrname/Desktop/data:/dataspace \
   wikv \
   /bin/bash -c "
     cd /workspace &&
