@@ -16,10 +16,10 @@ export MODEL_ID=Qwen/Qwen3-4B
 #export MODEL=Ministral-8B
 #export MODEL_ID=mistralai/Ministral-8B-Instruct-2410 
 
-export dataset=/home/hoongyao/data/test_data
+export dataset=/home/usrname/data/test_data
 
-export SAVE_HID_DIR=/home/hoongyao/data/Hidden_states
-export SAVE_ATT_DIR=/home/hoongyao/data/Attention
+export SAVE_HID_DIR=/home/usrname/data/Hidden_states
+export SAVE_ATT_DIR=/home/usrname/data/Attention
 
 
 export dataname=hotpotqa
