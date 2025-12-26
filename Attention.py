@@ -32,9 +32,6 @@ data_name = args.dataset_name
 
 # your hf account
 # login(token = "hf_xxx")
-login(token = "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")
-
-
 
 if __name__ == "__main__":
 
@@ -50,7 +47,7 @@ if __name__ == "__main__":
     )
 
     # process dataset, assume we are testing 40K tokens
-    dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
+    dataset = args.path_to_context 
     data = load_testcases(dataset)
 
 for session_id in range(args.start,args.end):
