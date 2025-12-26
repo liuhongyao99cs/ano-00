@@ -1,5 +1,5 @@
-cd /home/hoongyao/WiKV
-source /home/hoongyao/miniconda3/bin/activate WiKV
+cd /home/usrname/WiKV
+source /home/usrname/miniconda3/bin/activate WiKV
 
 export MODEL=Qwen3-4B
 export MODEL_ID=Qwen/Qwen3-4B
@@ -16,12 +16,12 @@ export MODEL_ID=Qwen/Qwen3-4B
 #export MODEL=Llama8B
 #export MODEL_ID=meta-llama/Llama-3.1-8B-Instruct
 
-export dataset=/home/hoongyao/data/test_data
-export SAVE_METRIC_DIR=/home/hoongyao/data/metric
-export SAVE_HID_DIR=/home/hoongyao/data/Hidden_states
-export SAVE_ATT_DIR=/home/hoongyao/data/Attention
-export SAVE_KV_DIR=/home/hoongyao/data/KV_cache
-export SAVE_ENCODE_DIR=/home/hoongyao/data/Encode
+export dataset=/home/usrname/data/test_data
+export SAVE_METRIC_DIR=/home/usrname/data/metric
+export SAVE_HID_DIR=/home/usrnameo/data/Hidden_states
+export SAVE_ATT_DIR=/home/usrname/data/Attention
+export SAVE_KV_DIR=/home/usrname/data/KV_cache
+export SAVE_ENCODE_DIR=/home/usrname/data/Encode
 
 export dataname=nqa
 python3 CacheGen.py \
