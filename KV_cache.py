@@ -38,10 +38,10 @@ if __name__ == "__main__":
 
     # load model, remember use 4bit, half() and flash_attention_2 to reduce memory
     bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,              # 开启 4-bit 加载
-        bnb_4bit_use_double_quant=True, # 开启双重量化 (进一步节省显存)
-        bnb_4bit_quant_type="nf4",      # 使用 NF4 格式 (精度损失最小)
-        bnb_4bit_compute_dtype=torch.bfloat16 # 计算时使用的精度 (建议保持 bf16)
+        load_in_4bit=True,              
+        bnb_4bit_use_double_quant=True, 
+        bnb_4bit_quant_type="nf4",    
+        bnb_4bit_compute_dtype=torch.bfloat16 
     )
 
     if data_name in ['videomme']:
@@ -101,7 +101,7 @@ for session_id in range(args.start, args.end):
                         "type": "video",
                         "video": video,
                         "max_pixels": 360 * 420,
-                        "fps": 2.0, # 降低FPS以减少token数量方便演示
+                        "fps": 2.0, 
                     },
                     {"type": "text", "text": input_text},
                 ],
@@ -128,10 +128,10 @@ for session_id in range(args.start, args.end):
         print(input_ids.shape[1])
         print(generated_ids.sequences.shape)
 
-        # 5. Decode Output
+        # Decode Output
         # Trim the input tokens from the output to get only the generated text
         answer = processor.batch_decode(
-            [generated_ids.sequences[0,input_ids.shape[1]:]],  # 直接传一维列表
+            [generated_ids.sequences[0,input_ids.shape[1]:]],  
             skip_special_tokens=True
         )
 
@@ -187,7 +187,7 @@ for session_id in range(args.start, args.end):
                     )
 
         answer = processor.batch_decode(
-                [generated.sequences[0,input_ids.shape[1]:]],  # 直接传一维列表
+                [generated.sequences[0,input_ids.shape[1]:]], 
                 skip_special_tokens=True
             )
 
