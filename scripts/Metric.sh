@@ -1,13 +1,13 @@
-cd /home/hoongyao/WiKV
-source /home/hoongyao/miniconda3/bin/activate WiKV
+cd /home/usrname/WiKV
+source /home/usrname/miniconda3/bin/activate WiKV
 
 export MODEL=Qwen3-4B
 export MODEL_ID=Qwen/Qwen3-4B
-export dataset=/home/hoongyao/data/test_data
-export SAVE_HID_DIR=/home/hoongyao/data/Hidden_states
-export SAVE_ATT_DIR=/home/hoongyao/data/Attention
-export SAVE_KV_DIR=/home/hoongyao/data/KV_cache
-export SAVE_METRIC_DIR=/home/hoongyao/data/metric
+export dataset=/home/usrname/data/test_data
+export SAVE_HID_DIR=/home/usrname/data/Hidden_states
+export SAVE_ATT_DIR=/home/usrname/data/Attention
+export SAVE_KV_DIR=/home/usrname/data/KV_cache
+export SAVE_METRIC_DIR=/home/usrname/data/metric
 
 python3 Metric.py \
     --model_id $MODEL_ID \
