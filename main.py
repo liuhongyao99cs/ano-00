@@ -47,7 +47,6 @@ data_name = args.dataset_name
 
 # your hf account
 # login(token = "hf_xxx")
-login(token = "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")
 
 if __name__ == "__main__":
 
@@ -240,7 +239,7 @@ if __name__ == "__main__":
         print("\n")
 
         # pace decoding
-        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, inputs, 50)
+        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, inputs, 25)
         
         # Give model answer if provided
         if data_name in ['nqa', 'tqa', 'hotpotqa']:
