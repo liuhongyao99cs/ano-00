@@ -119,5 +119,5 @@ python3 main.py \
     --save_hid_dir ${SAVE_HID_DIR}/${MODEL}/${dataname}/ \
     --save_att_dir ${SAVE_ATT_DIR}/${MODEL}/${dataname}/ \
     --save_encode_dir ${SAVE_ENCODE_DIR}/${MODEL}/${dataname}/ \
-    --start  0 \
+    --start  9 \
     --end 10 \
