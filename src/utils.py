@@ -41,30 +41,26 @@ def load_testcases(test_file):
 # load video from datasets
 def download_youtube_video(url, output_folder="temp_videos"):
     """
-    下载 YouTube 视频并返回本地文件路径
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     
-    # yt-dlp 配置：下载为 mp4，且文件名以视频 ID 命名以防重复
     ydl_opts = {
-        # 修改点：去掉带 + 号的选项，只保留 'best[ext=mp4]'
-        # 这会直接下载包含音轨的单一文件（通常限制在 720p），不需要 FFmpeg 合并
         'format': 'best[ext=mp4]/best', 
         'outtmpl': os.path.join(output_folder, '%(id)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True
     }
 
-    print(f"正在下载 YouTube 视频: {url} ...")
+    print(f"Downloading YouTube videos: {url} ...")
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-            print(f"下载完成: {filename}")
+            print(f"Finish: {filename}")
             return filename
     except Exception as e:
-        print(f"下载失败: {e}")
+        print(f"Error: {e}")
         return None
     
 def extract_frames(
