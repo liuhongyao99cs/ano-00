@@ -6,7 +6,7 @@ WiKV overlaps the wireless KV progressive streaming with pacing token decoding t
 We compare WiKV with three inference baselines on the efficiency and response quality.
 
 Demo-gif: Summary of long gov report
-![](https://github.com/liuhongyao99cs/WiKV/blob/main/WiKV_report.gif)
+![WiKV in goverment report summary task!](https://github.com/liuhongyao99cs/WiKV/blob/main/images/WiKV_report.gif)
 
 Demo video:
 https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e
