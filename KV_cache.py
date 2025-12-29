@@ -28,7 +28,6 @@ model_N = args.model #"Qwen3-4B"
 data_name = args.dataset_name
 
 # your hf account
-login(token = "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")
 
 if __name__ == "__main__":
     # Check if save_dir exists
