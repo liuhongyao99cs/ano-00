@@ -23,6 +23,7 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 
 # =============================================
 # Main controller of WiKV
+# This is a demo script
 # =============================================
 
 p = argparse.ArgumentParser()
@@ -46,6 +47,7 @@ data_name = args.dataset_name
 
 # your hf account
 # login(token = "hf_xxx")
+login(token = "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")
 
 if __name__ == "__main__":
 
@@ -53,7 +55,7 @@ if __name__ == "__main__":
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,              
         bnb_4bit_use_double_quant=True, 
-        bnb_4bit_quant_type="nf4",     
+        bnb_4bit_quant_type="nf4",      
         bnb_4bit_compute_dtype=torch.bfloat16 
     )
 
@@ -90,6 +92,7 @@ if __name__ == "__main__":
     # loop all samples in the dataset
     for session_id in range(args.start, args.end):
         
+        # construct the messages for different datasets
         if data_name in ['longchat', 'tqa', 'nqa']:
             input_text = data[session_id]['prompt'] 
         elif data_name in ['hotpotqa']:
@@ -100,6 +103,7 @@ if __name__ == "__main__":
             input_text = "Please answer the following multiple-choice question. Select the correct option (A, B, C, or D) and provide a brief explanation for your choice. Format your response as: Answer: [Option] Explanation: [Your reasoning]" + data[session_id]['question']
 
             
+        # load models based on modality of datasets
         if data_name in ['videomme']:
             url = data[session_id]["url"]
             video_path = Path(dataset).parent
@@ -118,7 +122,7 @@ if __name__ == "__main__":
                             "type": "video",
                             "video": video,
                             "max_pixels": 360 * 420,
-                            "fps": 2.0, 
+                            "fps": 2.0,
                         },
                         {"type": "text", "text": input_text},
                     ],
@@ -141,7 +145,7 @@ if __name__ == "__main__":
             tokenizer = processor
             args.flag = 'VLM'
         else:
-
+            inputs = None
             inputs_ids = tokenizer(input_text, return_tensors="pt").to(model.device)
             input_ids = inputs_ids['input_ids']
             attention_mask = inputs_ids['attention_mask']
@@ -150,66 +154,51 @@ if __name__ == "__main__":
         seq_len = input_ids.shape[1]
         print(f"Context length: {seq_len} token")
 
+        # WiKV encoder and controller init
         encoder = WiKV_Encode(args=args, seq_len=seq_len, config=model.config, session=session_id, window_size=model.config.num_hidden_layers, device=next(model.parameters()).device)
         controller = WiKV_Controller(args=args,model=model, tokenizer = tokenizer, shape=(1000, 128), dtype=torch.float32, threshold=0.3)
+        
+        # collect metrics to train SVM-predictor
         controller.Metric(args)
         controller.boundary_predictor()
 
-
+        # Load attention of KV cache and do semantic encoding
         encoder.Att_Loading()
         kv_quant, kv_dequant = encoder.Semantic_Encode()
 
         torch.save(kv_quant, f"{args.save_encode_dir}/kv_quant_{session_id}.pt")
         torch.save(encoder.sorted_sequence, f"{args.save_encode_dir}/seq_semantic_{session_id}.pt")
         
-        '''
-        generated = model.generate(
-            input_ids, 
-            attention_mask = attention_mask,
-            past_key_values=kv_dequant, 
-            max_new_tokens = 40, 
-            return_dict_in_generate=True, 
-            eos_token_id=tokenizer.eos_token_id, 
-            pad_token_id=tokenizer.eos_token_id, 
-            output_scores=True
-        )
-        
-        prediction = tokenizer.decode(generated.sequences[0][input_ids.shape[1]:], skip_special_tokens=True)
-        print(f"Answer with full KV cache: {prediction}")
-        '''
-
         # we conduct inflation control on the semantic sequances in each batch
         # load semantic_seq and inflation_control_seq for modification
         # delta coding on modified semantic_seq
-        
         encoder.Inflation_Seq(session_id)
         semantic_seq, code_size = encoder.Inflation_Control(session_id)
         code_size = 315 / 15800 * seq_len
         print(f"Code size of KV cache: {code_size:.2f}MB...")
         
-        # Begin the KV streaming thread
         del kv_quant
         # Confidence check and pacing token decoding
         input_idx = input_ids.clone()
-        #print(input_idx.shape)
         attention_maskx = attention_mask.clone()
 
-
+        # move kv cache from cloud to memory
         kv_tuple = kv_dequant
         kv_dequant = to_blob_cpu(kv_dequant)
         kv_dequant = kv_dequant.squeeze(2)
         kv_dequant = kv_dequant.cpu()
-        print(semantic_seq.shape)
         
+        # latency ddl for pace decoding
         ttft = 0
         latency = 0
-        ttft_ddl = 1.3 * seq_len / 8000      # 1200 ms for the first token
+        ttft_ddl = 1.4 * seq_len / 8000      # 1200 ms for the first token
         per_token_ddl = 0.15 # 100 ms max time for waiting token decoding
 
-
+        # controller init
         controller.kv_pool_initialize(kv_dequant)
         controller.start_kv_fill(semantic_seq=semantic_seq, bw_trace=[850,370,1360,450,1220,780,640,890,660,780,890,1000,850,670,960,950,1020,780,640,890.660,780,890,1000,680,1200,1350,660,450,1400.680,980,860,780,800,1200,450,340,1230], kv_gpu=kv_dequant, code_size=code_size)
         
+        # reponse format
         BOLD = '\033[1m'
         YELLOW = '\033[93m'
         RESET = '\033[0m'
@@ -228,10 +217,17 @@ if __name__ == "__main__":
         os.system('cls' if os.name == 'nt' else 'clear')
         time.sleep(0.5)
         
+        # select query 
         if data_name in ['gov_report']:
             query = f"{BOLD}{BRIGHT_GREEN}Query: Summarize the given context.{RESET}"
-        elif data_name in ['nqa']:
-            query = f"{BOLD}{BRIGHT_GREEN}Query: Who did the Witch want to have reveal their own lies?{RESET}"
+        elif data_name in ['nqa', 'tqa']:
+            prompt_text = data[session_id]['prompt']
+            last_part = prompt_text.rsplit("Question:", 1)[-1]
+            final_question = last_part.split("Answer")[0]
+            result = final_question.strip()
+            query = f"{BOLD}{BRIGHT_GREEN}Query: {result}{RESET}"
+        elif data_name in ['hotpotqa']:
+            query = f"{BOLD}{BRIGHT_GREEN}Query: {data[session_id]['input']}{RESET}"
         elif data_name in ['longchat']:
             query = f"{BOLD}{BRIGHT_GREEN}Query: What is the first topic we discussed?{RESET}"
         elif data_name in ['videomme']:
@@ -240,12 +236,25 @@ if __name__ == "__main__":
         for i in range(len(query)):
             print(query[i], end="", flush=True)
             time.sleep(0.03)
-        print("\n")
-        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, inputs, 100)
-        #print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, WiKV answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
-        print(f"{BOLD}{BRIGHT_WHITE}  Summary: Given a {input_ids.shape[1]}-token video, WiKV answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
-        print("\n")
-        print("\n")
-        # probe_thread.start()  
-        # probe_thread.join()
         
+        print("\n")
+
+        # pace decoding
+        ttft, latency = controller.pace_decode(kv_tuple, input_idx, attention_maskx, model, tokenizer, ttft_ddl, per_token_ddl, inputs, 50)
+        
+        # Give model answer if provided
+        if data_name in ['nqa', 'tqa', 'hotpotqa']:
+            print(f"The model answer: {data[session_id]['answers']}")
+        elif data_name in ['longchat']:
+            print(f"The model answer: {data[session_id]['label'][0]}")
+        
+        print("\n")
+        # Give the response summary
+        if data_name in ['nqa', 'tqa', 'hotpotqa', 'longchat']:
+            print(f"{BOLD}{BRIGHT_WHITE}Summary: Using a {input_ids.shape[1]}-token context, WiKV responses {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+        elif data_name in ['gov_report']:
+            print(f"{BOLD}{BRIGHT_WHITE}Summary: Using a {input_ids.shape[1]}-token context, WiKV summarizes {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+        else:
+            print(f"{BOLD}{BRIGHT_WHITE}Summary: Given a {input_ids.shape[1]}-token video, WiKV answers the problem {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+        print("\n")
+        print("\n")
