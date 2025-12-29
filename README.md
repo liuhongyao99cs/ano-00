@@ -44,7 +44,7 @@ Then modify the container to install sklearn packages and other pagkages you nee
 
 ## Experiments
 
-1. Generate the attention score for semantic coding, run (specify your dir in scripts properly) in Laptop:
+1. Generate the attention score for semantic coding, run (specify your dir in scripts properly) in Laptop / Jetson:
    ```bash
    cd scripts
    bash Attention.sh
@@ -55,7 +55,7 @@ Then modify the container to install sklearn packages and other pagkages you nee
    ```bash
    bash KV_cache.sh
 
-4. Run WiKV:
+4. Run WiKV, it will leverage the attention computed in Step 1 code the KV cache from Step 2 in a semantic progressive sequence:
    ```bash
    bash main.sh
 
