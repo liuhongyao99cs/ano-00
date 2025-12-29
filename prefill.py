@@ -9,8 +9,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from src.utils import *
 from huggingface_hub import login
 
+import warnings
+import logging
+warnings.filterwarnings("ignore")
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
 # =============================================
-# Test the prefill re-computation time of GPU
+# prefill on the GPU device
 # =============================================
 
 def dot_loading_thread(think_st, think_end):
@@ -57,8 +62,7 @@ model = AutoModelForCausalLM.from_pretrained(
     #output_attentions=False
 )
 
-# process dataset, assume we are testing 40K tokens
-dataset = args.path_to_context  #f"/home/hoongyao/data/test_data/{data_name}.jsonl"
+dataset = args.path_to_context  
 data = load_testcases(dataset)
 
 # Print color list
@@ -95,7 +99,22 @@ for session_id in range(args.start, args.end):
 
     os.system('cls' if os.name == 'nt' else 'clear')
     time.sleep(0.5)
-    query = f"{BOLD}{BRIGHT_GREEN}Query: summarize the given context."
+
+    if data_name in ['gov_report']:
+        query = f"{BOLD}{BRIGHT_GREEN}Query: Summarize the given context.{RESET}"
+    elif data_name in ['nqa', 'tqa']:
+        prompt_text = data[session_id]['prompt']
+        last_part = prompt_text.rsplit("Question:", 1)[-1]
+        final_question = last_part.split("Answer")[0]
+        result = final_question.strip()
+        query = f"{BOLD}{BRIGHT_GREEN}Query: {result}{RESET}"
+    elif data_name in ['hotpotqa']:
+        query = f"{BOLD}{BRIGHT_GREEN}Query: {data[session_id]['input']}{RESET}"
+    elif data_name in ['longchat']:
+        query = f"{BOLD}{BRIGHT_GREEN}Query: What is the first topic we discussed?{RESET}"
+    elif data_name in ['videomme']:
+        query = f"{BOLD}{BRIGHT_GREEN}Query: {data[session_id]['question']} {RESET}"
+
     for i in range(len(query)):
         print(query[i], end="", flush=True)
         time.sleep(0.03)
@@ -126,6 +145,7 @@ for session_id in range(args.start, args.end):
             if i == 0:
                 think_end.set()
                 print("\n")
+                print(f"{RESET}Prefill answer: ")
             print(f"{BOLD}{BRIGHT_WHITE}{UNDERLINE}{TALIC}{token}", end="", flush=True)
         else:
             with torch.no_grad():
@@ -147,9 +167,13 @@ for session_id in range(args.start, args.end):
     print(f"{RESET}\n")
     end_time = time.time()
     latency = end_time - start_time
-    print(f"{BOLD}{BRIGHT_WHITE}  Summary: Using a {input_ids.shape[1]}-token context, Prefill answers the query {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
-    print("\n")
-    print("\n")
 
-    while True:
-        a = 1
+    # Give the response summary
+    if data_name in ['nqa', 'tqa', 'hotpotqa', 'longchat']:
+        print(f"{BOLD}{BRIGHT_WHITE}Summary: Using a {input_ids.shape[1]}-token context, Prefill responses {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+    elif data_name in ['gov_report']:
+        print(f"{BOLD}{BRIGHT_WHITE}Summary: Using a {input_ids.shape[1]}-token context, Prefill summarizes {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+    else:
+        print(f"{BOLD}{BRIGHT_WHITE}Summary: Given a {input_ids.shape[1]}-token video, Prefill answers the problem {BOLD}{BRIGHT_RED}correctly{RESET} {BOLD}with {BOLD}{BRIGHT_CYAN}TTFT: {ttft:.2f}s {RESET}{BOLD}and {BOLD}{BRIGHT_CYAN}latency: {latency:.2f}s{RESET}.")
+    print("\n")
+    print("\n")
