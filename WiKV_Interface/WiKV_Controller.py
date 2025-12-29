@@ -580,7 +580,7 @@ class WiKV_Controller:
 
             data = np.column_stack((k_coverage, entro,acti, freq))
             #print(data[0], data[10])
-            model = OneClassSVM(kernel='rbf', gamma='scale', nu=0.03)
+            model = OneClassSVM(kernel='rbf', gamma='scale', nu=0.05)
             model.fit(data)
             print(f"Attention predictor: {model}")
             self.model = model
@@ -684,7 +684,7 @@ class WiKV_Controller:
             RESET = '\033[0m'
             UNDERLINE = '\033[4m' 
             TALIC = '\033[3m'
-            BRIGHT_BLACK = '\033[90m'    # 灰色
+            BRIGHT_BLACK = '\033[90m'    
             BRIGHT_RED = '\033[91m'
             BRIGHT_GREEN = '\033[92m'
             BRIGHT_YELLOW = '\033[93m'
@@ -778,11 +778,9 @@ class WiKV_Controller:
                         elapsed_time = end - start
 
                         del kv_tmp
-                        #print(f"COnfidence check for token {k}: {elapsed_time:.4f}s")
-                        #print(f"Metric decide: {decide} score")
 
-                        if (decide < 1e-3) and ((time.perf_counter() - token_st) < ddl) :
-                            self.step = 0.25/ ( 1 + 10 * math.e ** (-decide / 20))
+                        if (decide < 1e-4) and ((time.perf_counter() - token_st) < ddl) :
+                            self.step = 0.3/ ( 1 + 10 * math.e ** (-decide / 20))
                             del generated
                             #print("not enough")
                             continue
@@ -804,7 +802,7 @@ class WiKV_Controller:
                             kv_tuple = generated['past_key_values']
                                 
                             del generated  
-                            self.step = 0.08
+                            self.step = 0.1
                             break
                 
                 # all KV cache is streamed
@@ -914,6 +912,11 @@ class WiKV_Controller:
         
                 # if KV cache is not fully streamed
                 #if not self.full_event.is_set():
+                with torch.no_grad():
+                        model.generate(
+                            **inputs,  
+                            max_new_tokens=1,
+                        )
                 while (not self.full_event.is_set()):
                         flag = False
                         start = time.perf_counter()
@@ -1011,6 +1014,11 @@ class WiKV_Controller:
                         kv_tuple, _ = self.probe(kv_tuple, target_device='cuda:0')
 
                     with torch.no_grad():
+                        model.generate(
+                            **inputs,  
+                            max_new_tokens=1,
+                        )
+                    with torch.no_grad():
                         generated = model.generate(
                             **inputs,  
                             past_key_values=kv_tuple,         
@@ -1050,6 +1058,11 @@ class WiKV_Controller:
                 ttft =  end - startx
             latency = end - startx
             if latency == ttft:
+                with torch.no_grad():
+                        model.generate(
+                            **inputs,  
+                            max_new_tokens=1,
+                        )
                 with torch.no_grad():
                         generated = model.generate(
                             **inputs,  
