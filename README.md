@@ -102,3 +102,11 @@ Generate attention scores for semantic coding.
 Generate the KV cache for the datasets.
 ```bash
 bash KV_cache.sh
+```
+
+### 3. Run WiKV or baselines of KIVI and Prefill
+```bash
+bash main.sh
+bash KIVI.sh
+bash prefill.sh
+```
