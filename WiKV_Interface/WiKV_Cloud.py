@@ -36,5 +36,8 @@ bucket = oss2.Bucket(auth, endpoint, "kvcache", region=region)
 
 headers = {'x-oss-range-behavior': 'standard'}
 object_name = 'kv_quant_0.pt'
+
+# config the byte range to integrate into the pace decoding
+
 object_stream = bucket.get_object(object_name, byte_range=(500, 2000), headers=headers)
 print('standard get 500~2000 http status code:', object_stream.read())
