@@ -18,7 +18,7 @@ We benchmark WiKV against three standard inference baselines, evaluating both ef
   <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/Sum.gif" alt="WiKV Government Report Summary" width="100%">
 </p>
 
-Compared with **CacheGen**, Reduce TTFT by 2.8x while summarize the report with higher F1 score.
+Compared with **CacheGen**, Reduce TTFT by 2.8x while summarizing the report with higher F1 score.
 
 **2. Recall discussed topic**
 <p align="center">
@@ -40,8 +40,11 @@ Compared with **KIVI**, Reduce TTFT by 4.1x while maintaining the response quali
 After watching the video in (url) at 2 fps, Qwen2.5-VL-7B with WiKV and baselines answer the "question":"When demonstrating the Germany modern Christmas tree is initially decorated with apples, candles and berries, which kind of the decoration has the largest number?","options":["A. Apples.","B. Candles.","C. Berries.","D. The three kinds are of the same number."]
 
 WiKV: C with TTFT 0.94 s
+
 CacheGen: C WITH TTFT 2.04s
+
 KIVI: C with TTFT 2.43s
+
 ---
 
 ## ⚙️ Installation
