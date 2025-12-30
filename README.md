@@ -42,10 +42,7 @@ After watching the video at 2 fps, Qwen2.5-VL-7B with WiKV answers the question 
 
 > **[🎥 Click here to watch the demo video](https://www.youtube.com/watch?v=fFjv93ACGo8)**
 
-**Context:** Analysis of a video demonstrating a modern German Christmas tree...
-(接后面的表格...)
-
-"question":"When demonstrating the Germany modern Christmas tree is initially decorated with apples, candles and berries, which kind of the decoration has the largest number?","options":["A. Apples.","B. Candles.","C. Berries.","D. The three kinds are of the same number."]
+**Context:** When demonstrating the Germany modern Christmas tree is initially decorated with apples, candles and berries, which kind of the decoration has the largest number?, options:["A. Apples.","B. Candles.","C. Berries.","D. The three kinds are of the same number."]
 
 WiKV: C with TTFT 0.94 s
 
