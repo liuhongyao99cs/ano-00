@@ -18,12 +18,12 @@ We benchmark WiKV against three standard inference baselines, evaluating both ef
   <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/WiKV_report.gif" alt="WiKV Government Report Summary" width="80%">
 </p>
 
-**2. Comparison across datasets**
+**2. Recall discussed topic**
 
-**3. Video Demonstration**
-
-[Watch the full demo video here](https://github.com/user-attachments/assets/a1a69974-fff9-4551-bce6-077e7b70009e)
-
+**3. Question Answer**
+<p align="center">
+  <img src="(https://github.com/liuhongyao99cs/WiKV/blob/main/images/QA.gif)" alt="WiKV Question Answer" width="80%">
+</p>
 ---
 
 ## ⚙️ Installation
