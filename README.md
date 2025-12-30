@@ -22,7 +22,7 @@ We benchmark WiKV against three standard inference baselines, evaluating both ef
 
 **3. Question Answer**
 <p align="center">
-  <img src="(https://github.com/liuhongyao99cs/WiKV/blob/main/images/QA.gif)" alt="WiKV Question Answer" width="80%">
+  <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/QA.gif" alt="WiKV Question Answer" width="80%">
 </p>
 ---
 
