@@ -12,10 +12,10 @@ We benchmark WiKV against three standard inference baselines, evaluating both ef
 
 ### Demos
 
-**1. A quick demo of long report summary**
+**1. Long report summary**
 
 <p align="center">
-  <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/WiKV_report.gif" alt="WiKV Government Report Summary" width="80%">
+  <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/Sum.gif" alt="WiKV Government Report Summary" width="100%">
 </p>
 
 **2. Recall discussed topic**
