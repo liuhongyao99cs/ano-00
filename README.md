@@ -96,7 +96,7 @@ Due to the difficulty of finding proper PyTorch/Flash-Attention wheels for ARM64
 2.  **Extend Container**
     Create a custom Dockerfile to install `scikit-learn` and other necessary packages using the base container built above.
     
-    **Create a file named `Dockerfile`:**
+    **Create a Dockerfile:**
     ```dockerfile
     FROM wikv_container:r36.4.tegra-aarch64-cu126-22.04
     RUN pip install --no-cache-dir scikit-learn
