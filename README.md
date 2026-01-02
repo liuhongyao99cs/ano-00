@@ -1,4 +1,4 @@
-# WiKV: Wireless KV Streaming for Efficient LLM Inference
+# WiKV: A new framework enabling efficient inference of on-device LLMs
 
 Welcome to **WiKV**.
 
