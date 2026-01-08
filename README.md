@@ -1,6 +1,5 @@
-# WiKV: A new framework enabling efficient inference of on-device LLMs
+# A new framework enabling efficient inference of on-device LLMs
 
-Welcome to **WiKV**.
 
 WiKV overlaps wireless KV progressive streaming with pacing token decoding to significantly reduce the Time-to-First-Token (TTFT) and overall latency of Large Language Model (LLM) inference on mobile and IoT devices.
 
