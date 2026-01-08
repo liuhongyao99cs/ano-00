@@ -15,7 +15,7 @@ We benchmark WiKV against three standard inference baselines, evaluating both ef
 **1. Long report summary**
 
 <p align="center">
-  <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/Sum.gif" alt="WiKV Government Report Summary" width="100%">
+  <img src=./images/Sum.gif" alt="WiKV Government Report Summary" width="100%">
 </p>
 
 Compared with **CacheGen**, Reduce TTFT by 2.8x while summarizing the report with higher F1 score.
