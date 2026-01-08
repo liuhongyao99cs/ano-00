@@ -22,7 +22,7 @@ Compared with **CacheGen**, Reduce TTFT by 2.8x while summarizing the report wit
 
 **2. Recall discussed topic**
 <p align="center">
-  <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/Topic.gif" alt="WiKV Question Answer" width="100%">
+  <img src="images/Topic.gif" alt="WiKV Question Answer" width="100%">
 </p>
 
 Compared with **Prefill**, Reduce TTFT by 2.8x while recall the first discussed topic correctly.
@@ -30,7 +30,7 @@ Compared with **Prefill**, Reduce TTFT by 2.8x while recall the first discussed 
 
 **3. Question Answer**
 <p align="center">
-  <img src="https://github.com/liuhongyao99cs/WiKV/blob/main/images/QA.gif" alt="WiKV Question Answer" width="100%">
+  <img src="images/QA.gif" alt="WiKV Question Answer" width="100%">
 </p>
 
 Compared with **KIVI**, Reduce TTFT by 4.1x while maintaining the response quality.
